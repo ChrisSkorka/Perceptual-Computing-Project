@@ -24,7 +24,8 @@ def processImageFile(filename):
 	imgOriginalGrey = cv2.cvtColor(imgOriginal, cv2.COLOR_BGR2GRAY)
 
 	# find the relevant corners
-	findCorners(imgOriginalGrey)
+	cv2.imshow('afdsa', imgOriginalGrey)
+	findCorners(imgOriginal)
 
 	# show
 	cv2.imshow('imgOriginalGrey', imgOriginalGrey)
@@ -33,20 +34,34 @@ def processImageFile(filename):
 # find corners in image and finds the four page corners
 # parameters: 	imgGrey:			grey scale image
 # returns:		( (x, y), ... ):	four corners that are the page
-def findCorners(imgGrey):
-	imgGrey = imgGrey.copy()
-	imgGrey = np.float32(imgGrey)
+def findCorners(imgOriginal):
+	# imgGrey = imgGrey.copy()
+	# imgGrey = np.float32(imgGrey)
+	# imgColor = cv2.cvtColor(np.uint8(imgGrey), cv2.COLOR_GRAY2BGR)
+	cv2.imshow('orb', imgOriginal)
+	img = np.copy(imgOriginal)
+	input()
 
-	dst = cv2.cornerHarris(imgGrey, 2, 5, 0.01)
+	# Initiate ORB detector
+	orb = cv2.ORB_create()
+	# find the keypoints with ORB
+	kp = orb.detect(img, None)
+	# compute the descriptors with ORB
+	kp, des = orb.compute(img, kp)
+	# draw only keypoints location,not size and orientation
+	img2 = cv2.drawKeypoints(img, kp, None, color = (0, 0, 255), flags = 5)
+	cv2.imshow('orb', img)
 
-	#result is dilated for marking the corners, not important
-	dst = cv2.dilate(dst, None)
 
-	# Threshold for an optimal value, it may vary depending on the image.
-	imgColor = cv2.cvtColor(np.uint8(imgGrey), cv2.COLOR_GRAY2BGR)
-	imgColor[dst > 0.01 * dst.max()] = [0,0,255]
+	# dst = cv2.cornerHarris(imgGrey, 2, 5, 0.01)
 
-	cv2.imshow('corners', imgColor)
+	# #result is dilated for marking the corners, not important
+	# dst = cv2.dilate(dst, None)
+
+	# # Threshold for an optimal value, it may vary depending on the image.
+	# imgColor[dst > 0.01 * dst.max()] = [0,0,255]
+
+	# cv2.imshow('corners', imgColor)
 
 
 # run main program
