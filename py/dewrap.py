@@ -23,13 +23,15 @@ def processImageFile(filename):
 	imgOriginal = cv2.imread(filename)
 	imgOriginalGrey = cv2.cvtColor(imgOriginal, cv2.COLOR_BGR2GRAY)
 
-	# find the relevant corners
-	cv2.imshow('afdsa', imgOriginalGrey)
-	findCorners(imgOriginal)
-
 	# show
 	cv2.imshow('imgOriginalGrey', imgOriginalGrey)
+
+	# find the relevant corners
+	findCorners(imgOriginal)
+	
+	# wait for preview to finish
 	cv2.waitKey(10000)
+
 
 # find corners in image and finds the four page corners
 # parameters: 	imgGrey:			grey scale image
@@ -40,7 +42,7 @@ def findCorners(imgOriginal):
 	# imgColor = cv2.cvtColor(np.uint8(imgGrey), cv2.COLOR_GRAY2BGR)
 	cv2.imshow('orb', imgOriginal)
 	img = np.copy(imgOriginal)
-	input()
+	cv2.waitKey(10000)
 
 	# Initiate ORB detector
 	orb = cv2.ORB_create()
