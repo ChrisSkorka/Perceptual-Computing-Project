@@ -26,17 +26,108 @@ def processImageFile(filename):
 	imgOriginalGrey = cv2.cvtColor(imgOriginal, cv2.COLOR_BGR2GRAY)
 
 	# show
-	cv2.imshow('imgOriginalGrey', imgOriginalGrey)
+	cv2.imshow('imgOriginal', imgOriginal)
+
+	# test all parameters
+	test(imgOriginal)
+
+	# smooth image
+	# smoothed = cv2.GaussianBlur(imgOriginal, (3, 3), 1)
+	# smoothed = cv2.GaussianBlur(imgOriginal, (15, 15), 5)
+
+	# blur image
+	# gaussianBlur(imgOriginal);
 
 	# find the relevant corners
-	# findCorners(imgOriginal)
+	# findCorners(smoothed)
 
 	# find the relevant edges
-	findEdges(imgOriginal)
-	
-	# wait for preview to finish
-	cv2.waitKey(10000)
+	# findEdges(smoothed)
 
+	# find edges and find corners from edges
+	# findEdgesAndCorners(smoothed)
+	
+	# find lines from edges
+	# findLines(smoothed)
+
+	# wait for preview to finish
+	# cv2.waitKey(10000)
+
+def test(imgOriginal):
+
+	def show(state):
+
+		# blur
+		blured = cv2.GaussianBlur(imgOriginal, (state['blur kernel size'].v, state['blur kernel size'].v), state['blur diviation'].v)
+		cv2.imshow('blured', blured)	
+
+	def update(control, value, state):
+		state[control.name].v = value
+		show(state)
+
+	class var:
+		def __init__(self, v, vmin, vmax, vsteps = 1, vscale = 1):
+			self.v = v
+			self.min = vmin
+			self.max = vmax
+			self.steps = vsteps
+			self.scale = vscale
+
+	state = {
+		'blur kernel size': 	var(3, 1, 15, 2),
+		'blur diviation': 		var(1, 1, 9),
+		}
+
+	show(state)
+
+	app = App()
+	ins = inputs.Inputs(state=state)
+
+	for name in state:
+		properties = state[name]
+		slider = inputs.InputSlider(name, properties.v, onUpdate=update, sMin=properties.min, sMax=properties.max, sSteps=properties.steps)
+		ins.addInput(slider)
+
+	ins.getFrames()
+	app.show()
+
+
+
+def gaussianBlur(imgOriginal):
+	
+	def show(state):
+		imgGrey = cv2.cvtColor(np.uint8(imgOriginal), cv2.COLOR_BGR2GRAY)
+		imgGrey = np.float32(imgGrey)
+		imgColor = imgOriginal.copy()
+
+		blured = cv2.GaussianBlur(imgOriginal, (state[0], state[0]), state[1])
+
+		cv2.imshow('blured', blured)		
+
+	def update1(control, value, state):
+		state[0] = value
+		show(state)	
+
+	def update2(control, value, state):
+		state[1] = value
+		show(state)
+
+	state = [3, 1]
+
+	app = App()
+
+	slider1 = inputs.InputSlider("size", 2, onUpdate=update1, sMin=1, sMax=50, sSteps=2)
+	slider2 = inputs.InputSlider("sdv", 2, onUpdate=update2, sMin=1, sMax=50, sSteps=2)
+
+	ins = inputs.Inputs(state=state)
+
+	ins.addInput(slider1)
+	ins.addInput(slider2)
+	ins.getFrames()
+
+	show(state)
+
+	app.show()
 
 # find corners in image and finds the four page corners
 # parameters: 	imgGrey:			grey scale image
@@ -108,20 +199,122 @@ def findCorners(imgOriginal):
 	app.show()
 
 def findEdges(imgOriginal):
-		def show(state):
+
+	def show(state):
 		imgGrey = cv2.cvtColor(np.uint8(imgOriginal), cv2.COLOR_BGR2GRAY)
-		imgGrey = np.float32(imgGrey)
+
+		edges = cv2.Canny(imgGrey, state[0], state[1])
+
+		cv2.imshow('edges', edges)		
+
+	def update1(control, value, state):
+		state[0] = value
+		show(state)	
+
+	def update2(control, value, state):
+		state[1] = value
+		show(state)	
+
+	state = [35, 275]
+
+	app = App()
+
+	slider1 = inputs.InputSlider("threshold1", 35, onUpdate=update1, sMin=0, sMax=500, sSteps=1)
+	slider2 = inputs.InputSlider("threshold2", 275, onUpdate=update2, sMin=0, sMax=500, sSteps=1)
+
+	ins = inputs.Inputs(state=state)
+
+	ins.addInput(slider1)
+	ins.addInput(slider2)
+	ins.getFrames()
+
+	show(state)
+
+	app.show()
+
+def findEdgesAndCorners(imgOriginal):
+
+	def show(state):
+		imgGrey = cv2.cvtColor(np.uint8(imgOriginal), cv2.COLOR_BGR2GRAY)
 		imgColor = imgOriginal.copy()
 
-		dst = cv2.cornerHarris(imgGrey, state[0], state[1], state[2])
+		edges = cv2.Canny(imgGrey, state[0], state[1])
+		edges = np.float32(edges)
+		edgesColor = cv2.cvtColor(np.uint8(edges), cv2.COLOR_GRAY2BGR)
+
+		dst = cv2.cornerHarris(edges, state[2], state[3], state[4])
 
 		#result is dilated for marking the corners, not important
 		dst = cv2.dilate(dst, None)
 
 		# Threshold for an optimal value, it may vary depending on the image.
-		imgColor[dst > state[3] * dst.max()] = [0,0,255]
+		edgesColor[dst > state[5] * dst.max()] = [0,0,255]
 
-		cv2.imshow('corners', imgColor)		
+		cv2.imshow('edges and corners', edgesColor)
+
+	def update1(control, value, state):
+		state[0] = value
+		show(state)	
+
+	def update2(control, value, state):
+		state[1] = value
+		show(state)		
+
+	def update3(control, value, state):
+		state[2] = value
+		show(state)	
+
+	def update4(control, value, state):
+		state[3] = value
+		show(state)	
+
+	def update5(control, value, state):
+		state[4] = value / 1000
+		show(state)	
+
+	def update6(control, value, state):
+		state[5] = value / 1000
+		show(state)
+
+	state = [35, 275, 2, 5, 0.01, 0.01]
+
+	app = App()
+
+	slider1 = inputs.InputSlider("threshold1", 35, onUpdate=update1, sMin=0, sMax=500, sSteps=1)
+	slider2 = inputs.InputSlider("threshold2", 275, onUpdate=update2, sMin=0, sMax=500, sSteps=1)
+	slider3 = inputs.InputSlider("threshold3", 2, onUpdate=update3, sMin=1, sMax=50, sSteps=1)
+	slider4 = inputs.InputSlider("threshold4", 5, onUpdate=update4, sMin=3, sMax=31, sSteps=2)
+	slider5 = inputs.InputSlider("threshold5/1000", 10, onUpdate=update5, sMin=1, sMax=1000, sSteps=1)
+	slider6 = inputs.InputSlider("threshold6/1000", 10, onUpdate=update6, sMin=1, sMax=1000, sSteps=1)
+
+	ins = inputs.Inputs(state=state)
+
+	ins.addInput(slider1)
+	ins.addInput(slider2)
+	ins.addInput(slider3)
+	ins.addInput(slider4)
+	ins.addInput(slider5)
+	ins.addInput(slider6)
+	ins.getFrames()
+
+	show(state)
+
+	app.show()
+
+def findLines(imgOriginal):
+
+	def show(state):
+		imgGrey = cv2.cvtColor(np.uint8(imgOriginal), cv2.COLOR_BGR2GRAY)
+
+		edges = cv2.Canny(imgGrey, state[0], state[1])	
+
+		edgesL = edges // 15
+		lines = cv2.HoughLinesP(edges, 1, np.pi / 180, state[2], 100, state[3])
+		if lines is not None:
+			for i in range(0, len(lines)):
+				line = lines[i][0]
+				cv2.line(edgesL, (line[0], line[1]), (line[2], line[3]), 200, 1)
+		cv2.imshow("edgesL", edgesL)
 
 	def update1(control, value, state):
 		state[0] = value
@@ -132,21 +325,21 @@ def findEdges(imgOriginal):
 		show(state)	
 
 	def update3(control, value, state):
-		state[2] = value / 1000
+		state[2] = value
 		show(state)	
 
 	def update4(control, value, state):
-		state[3] = value / 1000
-		show(state)
+		state[3] = value
+		show(state)	
 
-	state = [2, 5, 0.01, 0.01]
+	state = [10, 100, 35, 275]
 
 	app = App()
 
-	slider1 = inputs.InputSlider("threshold1", 2, onUpdate=update1, sMin=1, sMax=50, sSteps=1)
-	slider2 = inputs.InputSlider("threshold2", 5, onUpdate=update2, sMin=3, sMax=31, sSteps=2)
-	slider3 = inputs.InputSlider("threshold3/1000", 10, onUpdate=update3, sMin=1, sMax=1000, sSteps=1)
-	slider4 = inputs.InputSlider("threshold4/1000", 10, onUpdate=update4, sMin=1, sMax=1000, sSteps=1)
+	slider1 = inputs.InputSlider("threshold1", 35, onUpdate=update1, sMin=0, sMax=500, sSteps=1)
+	slider2 = inputs.InputSlider("threshold2", 275, onUpdate=update2, sMin=0, sMax=500, sSteps=1)
+	slider3 = inputs.InputSlider("threshold3", 10, onUpdate=update3, sMin=0, sMax=100, sSteps=1)
+	slider4 = inputs.InputSlider("threshold4", 100, onUpdate=update4, sMin=0, sMax=20, sSteps=1)
 
 	ins = inputs.Inputs(state=state)
 
@@ -155,6 +348,8 @@ def findEdges(imgOriginal):
 	ins.addInput(slider3)
 	ins.addInput(slider4)
 	ins.getFrames()
+
+	show(state)
 
 	app.show()
 
