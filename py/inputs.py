@@ -68,7 +68,7 @@ class InputSlider(Input):
 		self.view = wx.Slider(panel, value=self.value, minValue=self.min, maxValue=self.max)
 		self.view.Bind(wx.EVT_SCROLL, self.processUpdate)
 
-		# self.view.SetMinSize((300, 0))
+		self.view.SetMinSize((300, 30))
 
 		sizer = wx.BoxSizer(wx.HORIZONTAL)
 		sizer.Add(self.view)

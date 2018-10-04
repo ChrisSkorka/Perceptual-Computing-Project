@@ -58,25 +58,89 @@ def test(imgOriginal):
 	def show(state):
 
 		# blur
-		blured = cv2.GaussianBlur(imgOriginal, (state['blur kernel size'].v, state['blur kernel size'].v), state['blur diviation'].v)
-		cv2.imshow('blured', blured)	
+		imgBlured = cv2.GaussianBlur(
+			imgOriginal, 
+			(state['blur kernel size'].v, state['blur kernel size'].v), 
+			state['blur diviation'].v)
+
+		cv2.imshow('gaussian blured', imgBlured)	
+
+		# dilate image
+		dilationKernel = cv2.getStructuringElement(
+			cv2.MORPH_RECT, 
+			(state['dilation size'].v, state['dilation size'].v)
+			)
+		imgDilated = cv2.dilate(imgBlured, dilationKernel)
+
+		cv2.imshow('dilation', imgDilated)	
+
+		# harris corner detection
+		bluredGrey = np.float32(cv2.cvtColor(np.uint8(imgBlured), cv2.COLOR_BGR2GRAY))
+		dilatedGrey = np.float32(cv2.cvtColor(np.uint8(imgDilated), cv2.COLOR_BGR2GRAY))
+
+		dst = cv2.cornerHarris(
+			dilatedGrey, 
+			state['harris block size'].v, 
+			state['harris ksize'].v, 
+			state['harris k'].v)
+	
+		dst = cv2.dilate(dst, None) # dilate
+
+		imgCorners = imgBlured.copy()
+		imgCorners[dst > state['harris threashold'].v * dst.max()] = [0,0,255] # threshold
+		cv2.imshow('harris corners', imgCorners)
+
+		# canny edges
+		imgEdges = cv2.Canny(
+			np.uint8(dilatedGrey), 
+			state['canny lower'].v, 
+			state['canny upper'].v)
+
+		cv2.imshow('canny edges', imgEdges)	
+
+		# hough lines
+		imgLines = imgEdges // 10
+		lines = cv2.HoughLinesP(
+			imgEdges, 
+			state['hough rho'].v, 
+			state['hough theta'].v * np.pi / 180, 
+			state['hough threshold'].v, 
+			state['hough srn'].v, 
+			state['hough stn'].v)
+		if lines is not None:
+			for i in range(0, len(lines)):
+				line = lines[i][0]
+				cv2.line(imgLines, (line[0], line[1]), (line[2], line[3]), 200, 1)
+		cv2.imshow("hough lines", imgLines)
+
 
 	def update(control, value, state):
-		state[control.name].v = value
+		state[control.name].v = value * state[control.name].scale
 		show(state)
 
 	class var:
-		def __init__(self, v, vmin, vmax, vsteps = 1, vscale = 1):
+		def __init__(self, v, vmin, vmax, steps = 1, scale = 1):
 			self.v = v
 			self.min = vmin
 			self.max = vmax
-			self.steps = vsteps
-			self.scale = vscale
+			self.steps = steps
+			self.scale = scale
 
 	state = {
-		'blur kernel size': 	var(3, 1, 15, 2),
-		'blur diviation': 		var(1, 1, 9),
-		'harris block size': 	var(1, 1, 9, 2),
+		'blur kernel size': 	var(v = 3, 		vmin = 1, vmax = 15, steps = 2		),
+		'blur diviation': 		var(v = 1, 		vmin = 1, vmax = 9					),
+		'dilation size': 		var(v = 9, 		vmin = 1, vmax = 50					),
+		'harris block size': 	var(v = 1, 		vmin = 1, vmax = 31, steps = 2		),
+		'harris ksize': 		var(v = 3, 		vmin = 1, vmax = 31,  steps = 2		),
+		'harris k': 			var(v = 40, 	vmin = 1, vmax = 1000, scale = 0.001),
+		'harris threashold':	var(v = 10, 	vmin = 1, vmax = 1000, scale = 0.001),
+		'canny lower': 			var(v = 100, 	vmin = 1, vmax = 255				),
+		'canny upper': 			var(v = 200, 	vmin = 1, vmax = 255				),
+		'hough rho': 			var(v = 1, 		vmin = 1, vmax = 32					),
+		'hough theta': 			var(v = 1	, 	vmin = 1, vmax = 360				),
+		'hough threshold': 		var(v = 100, 	vmin = 1, vmax = 256				),
+		'hough srn': 			var(v = 0, 		vmin = 1, vmax = 255				),
+		'hough stn': 			var(v = 0, 		vmin = 1, vmax = 255				),
 		}
 
 	show(state)
