@@ -57,6 +57,8 @@ def test(imgOriginal):
 
 	def show(state):
 
+		cv2.imwrite('output/original.png', imgOriginal)
+
 		# blur
 		imgBlured = cv2.GaussianBlur(
 			imgOriginal, 
@@ -64,7 +66,7 @@ def test(imgOriginal):
 			state['blur diviation'].v)
 
 		cv2.imshow('gaussian blured', imgBlured)	
-
+		# cv2.imwrite('output/smoothed.png', imgBlured)
 
 
 		# dilate image
@@ -75,6 +77,7 @@ def test(imgOriginal):
 		imgDilated = cv2.dilate(imgBlured, dilationKernel)
 
 		cv2.imshow('dilation', imgDilated)	
+		# cv2.imwrite('output/dilated.png', imgDilated)
 
 
 
@@ -86,6 +89,7 @@ def test(imgOriginal):
 		imgEroded = cv2.erode(imgDilated, erotionKernel)
 
 		cv2.imshow('eroded', imgEroded)	
+		# cv2.imwrite('output/eroded.png', imgEroded)
 		
 
 
@@ -98,14 +102,15 @@ def test(imgOriginal):
 			erodedGrey, 
 			state['harris block size'].v, 
 			state['harris ksize'].v, 
-			state['harris k'].v)
+			state['harris k'].v
+		)
 	
 		dst = cv2.dilate(dst, None) # dilate
 
 		imgCorners = imgBlured.copy()
 		imgCorners[dst > state['harris threashold'].v * dst.max()] = [0,0,255] # threshold
 		cv2.imshow('harris corners', imgCorners)
-
+		# cv2.imwrite('output/corners.png', imgCorners)
 
 
 		# canny edges
@@ -115,6 +120,7 @@ def test(imgOriginal):
 			state['canny upper'].v)
 
 		cv2.imshow('canny edges', imgEdges)	
+		# cv2.imwrite('output/edges.png', imgEdges)
 
 
 
@@ -132,6 +138,7 @@ def test(imgOriginal):
 				line = lines[i][0]
 				cv2.line(imgProbLines, (line[0], line[1]), (line[2], line[3]), 200, 1)
 		cv2.imshow("probabilistic hough lines", imgProbLines)
+		# cv2.imwrite('output/problines.png', imgProbLines)
 
 
 
@@ -160,14 +167,25 @@ def test(imgOriginal):
 
 				cv2.line(imgLines, (x1, y1), (x2, y2), 255, 1)
 		cv2.imshow("hough lines", imgLines)
+		# cv2.imwrite('output/lines.png', imgLines)
 
 
 
 		# contoure lines to join them
-		img0, contours, hierarchy = cv2.findContours(imgProbLines, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
-		imgContours = imgEdges.copy()
-		cv2.drawContours(imgContours, contours, -1, 255, 1)
+		imgContours = imgEdges // 10
+		img0, contours, hierarchy = cv2.findContours(imgProbLines, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
+		contours = sorted(contours, key = cv2.contourArea, reverse = True)
+		for c in contours:
+			# approximate the contour
+			peri = cv2.arcLength(c, True)
+			approx = cv2.approxPolyDP(c, 0.02 * peri, True)
+
+			if len(approx) == 4:
+				cv2.drawContours(imgContours, [approx], -1, 255, 1)
+				# print(approx)
+
 		cv2.imshow("contour lines", imgContours)
+		cv2.imwrite('output/contour.png', imgContours)
 
 
 	def update(control, value, state):
@@ -185,17 +203,17 @@ def test(imgOriginal):
 	state = {
 		'blur kernel size': 	var(v = 3, 		vmin = 1, vmax = 15, steps = 2		),
 		'blur diviation': 		var(v = 1, 		vmin = 1, vmax = 9					),
-		'dilation size': 		var(v = 9, 		vmin = 1, vmax = 50					),
-		'erode size': 		var(v = 9, 		vmin = 1, vmax = 50					),
-		'harris block size': 	var(v = 1, 		vmin = 1, vmax = 31, steps = 2		),
+		'dilation size': 		var(v = 6, 		vmin = 1, vmax = 50					),
+		'erode size': 			var(v = 6, 		vmin = 1, vmax = 50					),
+		'harris block size': 	var(v = 25, 	vmin = 1, vmax = 31, steps = 2		),
 		'harris ksize': 		var(v = 3, 		vmin = 1, vmax = 31,  steps = 2		),
-		'harris k': 			var(v = 40, 	vmin = 1, vmax = 1000, scale = 0.001),
-		'harris threashold':	var(v = 10, 	vmin = 1, vmax = 1000, scale = 0.001),
-		'canny lower': 			var(v = 100, 	vmin = 1, vmax = 255				),
+		'harris k': 			var(v = 0.04, 	vmin = 1, vmax = 1000, scale = 0.001),
+		'harris threashold':	var(v = 0.03, 	vmin = 1, vmax = 1000, scale = 0.001),
+		'canny lower': 			var(v = 50, 	vmin = 1, vmax = 255				),
 		'canny upper': 			var(v = 200, 	vmin = 1, vmax = 255				),
 		'hough rho': 			var(v = 1, 		vmin = 1, vmax = 32					),
 		'hough theta': 			var(v = 1	, 	vmin = 1, vmax = 360				),
-		'hough threshold': 		var(v = 100, 	vmin = 1, vmax = 256				),
+		'hough threshold': 		var(v = 60, 	vmin = 1, vmax = 256				),
 		'hough srn': 			var(v = 0, 		vmin = 1, vmax = 255				),
 		'hough stn': 			var(v = 0, 		vmin = 1, vmax = 255				),
 		}
@@ -207,7 +225,7 @@ def test(imgOriginal):
 
 	for name in state:
 		properties = state[name]
-		slider = inputs.InputSlider(name, properties.v, onUpdate=update, sMin=properties.min, sMax=properties.max, sSteps=properties.steps)
+		slider = inputs.InputSlider(name, properties.v / properties.scale, onUpdate=update, sMin=properties.min, sMax=properties.max, sSteps=properties.steps)
 		ins.addInput(slider)
 
 	ins.getFrames()
