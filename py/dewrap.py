@@ -76,6 +76,7 @@ def test(imgOriginal):
 	state = {
 		'blur kernel size': 	var(3, 1, 15, 2),
 		'blur diviation': 		var(1, 1, 9),
+		'harris block size': 	var(1, 1, 9, 2),
 		}
 
 	show(state)
@@ -353,6 +354,7 @@ def findLines(imgOriginal):
 
 	app.show()
 
+	cv2.waitKey(10000)
 
 # run main program
 if __name__ == "__main__":
