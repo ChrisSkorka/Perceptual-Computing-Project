@@ -4,6 +4,10 @@ import cv2
 from common import *
 import inputs
 
+# global variables
+showProgress = True
+saveProgress = False
+
 # main program, processes each image file specified
 # parameters: 	None
 # returns:		None
@@ -53,139 +57,247 @@ def processImageFile(filename):
 	# wait for preview to finish
 	# cv2.waitKey(10000)
 
-def test(imgOriginal):
+# measure confidence in the results with the specified parameters
+# parameters: 	imgOriginal: nparray	image to test
+#				parameters: {}			parameters to apply 
+# returns:		float: confidence
+def measureConfidence(imgOriginal, parameters):
+
+
+
+	return 0
+
+def findCorners(img, parameters):
+
+
+
+
+	return []
+
+def logImg(img, name):
+	if showProgress:
+		cv2.imshow(name, img)
+
+	if saveProgress:
+		cv2.imwrite('output/'+name+".png", img)
+
+def grayIntImg(img):
+	return np.uint8(cv2.cvtColor(img, cv2.COLOR_BGR2GRAY))
+	
+def grayFlaotImg(img):
+	return np.float32(cv2.cvtColor(img, cv2.COLOR_BGR2GRAY))
+
+def smoothImg(img, parameters, name = 'gaussian blured'):
+
+	imgSmooth = cv2.GaussianBlur(
+		img, 
+		(parameters['blur kernel size'].v, parameters['blur kernel size'].v), 
+		parameters['blur diviation'].v
+	)
+
+	logImg(imgSmooth, name)
+
+	return imgSmooth
+
+def dilateImg(img, parameters, name = 'dilated'):
+
+	dilationKernel = cv2.getStructuringElement(
+		cv2.MORPH_RECT, 
+		(parameters['dilation size'].v, parameters['dilation size'].v)
+	)
+
+	imgDilated = cv2.dilate(img, dilationKernel)
+
+	logImg(imgDilated, name)
+
+	return imgDilated
+
+def erodeImg(img, parameters, name = 'eroded'):
+
+	erotionKernel = cv2.getStructuringElement(
+		cv2.MORPH_RECT, 
+		(parameters['erode size'].v, parameters['erode size'].v)
+	)
+
+	imgEroded = cv2.erode(img, erotionKernel)
+
+	logImg(imgEroded, name)
+
+	return imgEroded
+
+def harrisCornerImg(img, parameters, name = 'harris intensity'):
+
+	intensity = cv2.cornerHarris(
+		img, 
+		parameters['harris block size'].v, 
+		parameters['harris ksize'].v, 
+		parameters['harris k'].v
+	)
+
+	intensity = intensity / intensity.max()
+
+	logImg(intensity, name)
+
+	return intensity
+
+def nonMaximumSupressImg(img, name = 'harris peaks'):
+
+	logImg(img, name)
+
+	return img
+
+def harrisThresholdImg(img, parameters):
+
+	threshold = img > parameters['harris threashold'].v * img.max()
+
+	# logImg(threshold, 'harris threshold')
+
+	return threshold
+
+def paintPixelsImg(img, pixel, color = [0, 0, 255]):
+
+	copy = img.copy()
+	copy[pixel] = color
+	return copy
+
+def cannyEdgeImg(img, parameters, name = 'canny edges'):
+	
+	imgEdges = cv2.Canny(
+		np.uint8(img), 
+		parameters['canny lower'].v, 
+		parameters['canny upper'].v
+	)
+
+	logImg(imgEdges, name)
+
+	return imgEdges
+
+def probabilisticHoughTransformImg(img, parameters, name = 'probabilistic hough lines'):
+	
+	imgProbLines = np.zeros(img.shape, dtype=np.uint8)
+
+	lines = cv2.HoughLinesP(
+		img, 
+		parameters['hough rho'].v, 
+		parameters['hough theta'].v * np.pi / 180, 
+		parameters['hough threshold'].v, 
+		parameters['hough srn'].v, 
+		parameters['hough stn'].v)
+
+	if lines is not None:
+		for i in range(0, len(lines)):
+			line = lines[i][0]
+			cv2.line(imgProbLines, (line[0], line[1]), (line[2], line[3]), 255, 1)
+
+	logImg(imgProbLines, name)
+
+	return imgProbLines
+
+def houghTransformImg(img, parameters, name = 'hough lines'):
+
+	imgLines = np.zeros(img.shape, dtype=np.uint8)
+	
+	lines = cv2.HoughLines(
+		img,
+		parameters['hough rho'].v,
+		parameters['hough theta'].v * np.pi / 180, 
+		parameters['hough threshold'].v
+	)
+
+	if lines is not None:
+		for [[rho, theta]] in lines:
+			# print(rho, theta)
+			a = np.cos(theta)
+			b = np.sin(theta)
+			x0 = a*rho
+			y0 = b*rho
+			x1 = int(x0 + 1000*(-b))
+			y1 = int(y0 + 1000*(a))
+			x2 = int(x0 - 1000*(-b))
+			y2 = int(y0 - 1000*(a))
+
+			cv2.line(imgLines, (x1, y1), (x2, y2), 255, 1)
+
+	logImg(imgLines, name)
+
+	return imgLines
+
+def contours4Img(img):
+
+	contours4 = []
+
+	img0, contours, hierarchy = cv2.findContours(img, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
+	contours = sorted(contours, key = cv2.contourArea, reverse = True)
+	for c in contours:
+
+		# approximate the contour
+		peri = cv2.arcLength(c, True)
+		approx = cv2.approxPolyDP(c, 0.02 * peri, True)
+
+		if len(approx) == 4:
+			contours4.append(approx)
+			# cv2.drawContours(imgContours, [approx], -1, (255, 0, 0), 1)
+
+	return contours4
+
+def darwContousImg(img, contours, color = (255, 0, 0), name = 'contour lines'):
+	
+	copy = img.copy()
+
+	cv2.drawContours(copy, contours, -1, color, 1)
+
+	logImg(copy, name)
+
+	return copy
+
+def test(img):
 
 	def show(state):
 
-		cv2.imwrite('output/original.png', imgOriginal)
+		cv2.imwrite('output/original.png', img)
 
 		# blur
-		imgBlured = cv2.GaussianBlur(
-			imgOriginal, 
-			(state['blur kernel size'].v, state['blur kernel size'].v), 
-			state['blur diviation'].v)
-
-		cv2.imshow('gaussian blured', imgBlured)	
-		# cv2.imwrite('output/smoothed.png', imgBlured)
-
+		imgBlured = smoothImg(img, state)
 
 		# dilate image
-		dilationKernel = cv2.getStructuringElement(
-			cv2.MORPH_RECT, 
-			(state['dilation size'].v, state['dilation size'].v)
-			)
-		imgDilated = cv2.dilate(imgBlured, dilationKernel)
-
-		cv2.imshow('dilation', imgDilated)	
-		# cv2.imwrite('output/dilated.png', imgDilated)
-
-
+		imgDilated = dilateImg(imgBlured, state)
 
 		# erode image
-		erotionKernel = cv2.getStructuringElement(
-			cv2.MORPH_RECT, 
-			(state['erode size'].v, state['erode size'].v)
-			)
-		imgEroded = cv2.erode(imgDilated, erotionKernel)
-
-		cv2.imshow('eroded', imgEroded)	
-		# cv2.imwrite('output/eroded.png', imgEroded)
+		imgEroded = erodeImg(imgDilated, state)
 		
-
+		erodedGrey = grayFlaotImg(imgEroded)
 
 		# harris corner detection
-		bluredGrey = np.float32(cv2.cvtColor(np.uint8(imgBlured), cv2.COLOR_BGR2GRAY))
-		dilatedGrey = np.float32(cv2.cvtColor(np.uint8(imgDilated), cv2.COLOR_BGR2GRAY))
-		erodedGrey = np.float32(cv2.cvtColor(np.uint8(imgEroded), cv2.COLOR_BGR2GRAY))
+		harrisIntensity = harrisCornerImg(erodedGrey, state)
+		
+		harrisPeaks = nonMaximumSupressImg(harrisIntensity)
 
-		dst = cv2.cornerHarris(
-			erodedGrey, 
-			state['harris block size'].v, 
-			state['harris ksize'].v, 
-			state['harris k'].v
-		)
-	
-		dst = cv2.dilate(dst, None) # dilate
+		harrisThreshold = harrisThresholdImg(harrisIntensity, state);
 
-		imgCorners = imgBlured.copy()
-		imgCorners[dst > state['harris threashold'].v * dst.max()] = [0,0,255] # threshold
-		cv2.imshow('harris corners', imgCorners)
-		# cv2.imwrite('output/corners.png', imgCorners)
+		harrisCorners = paintPixelsImg(img, harrisThreshold, [0, 0, 255])
+		logImg(harrisCorners, 'harris corners')
+		
+		# # dilate image
+		# harrisCornersDilated = dilateImg(harrisIntensity, state, 'harris dilated')
 
+		# # erode image
+		# harrisCornersEroded = erodeImg(harrisCornersDilated, state, 'harris eroded')
 
 		# canny edges
-		imgEdges = cv2.Canny(
-			np.uint8(erodedGrey), 
-			state['canny lower'].v, 
-			state['canny upper'].v)
-
-		cv2.imshow('canny edges', imgEdges)	
-		# cv2.imwrite('output/edges.png', imgEdges)
-
-
+		imgEdges = cannyEdgeImg(erodedGrey, state)
 
 		# probabilistic hough lines
-		imgProbLines = imgEdges // 10
-		lines = cv2.HoughLinesP(
-			imgEdges, 
-			state['hough rho'].v, 
-			state['hough theta'].v * np.pi / 180, 
-			state['hough threshold'].v, 
-			state['hough srn'].v, 
-			state['hough stn'].v)
-		if lines is not None:
-			for i in range(0, len(lines)):
-				line = lines[i][0]
-				cv2.line(imgProbLines, (line[0], line[1]), (line[2], line[3]), 200, 1)
-		cv2.imshow("probabilistic hough lines", imgProbLines)
-		# cv2.imwrite('output/problines.png', imgProbLines)
-
-
+		imgProbLines = probabilisticHoughTransformImg(imgEdges, state)
 
 		# hough lines
-		imgLines = imgEdges // 10
-		lines = cv2.HoughLines(
-			imgEdges,
-			state['hough rho'].v,
-			state['hough theta'].v * np.pi / 180, 
-			state['hough threshold'].v
-		)
+		imgLines = houghTransformImg(imgEdges, state)
 
-		# print(lines)
+		# find 4 sided contours
+		contours1 = contours4Img(imgProbLines)
+		contours2 = contours4Img(imgLines)
 
-		if lines is not None:
-			for [[rho, theta]] in lines:
-				# print(rho, theta)
-				a = np.cos(theta)
-				b = np.sin(theta)
-				x0 = a*rho
-				y0 = b*rho
-				x1 = int(x0 + 1000*(-b))
-				y1 = int(y0 + 1000*(a))
-				x2 = int(x0 - 1000*(-b))
-				y2 = int(y0 - 1000*(a))
-
-				cv2.line(imgLines, (x1, y1), (x2, y2), 255, 1)
-		cv2.imshow("hough lines", imgLines)
-		# cv2.imwrite('output/lines.png', imgLines)
-
-
-
-		# contoure lines to join them
-		imgContours = imgEdges // 10
-		img0, contours, hierarchy = cv2.findContours(imgProbLines, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
-		contours = sorted(contours, key = cv2.contourArea, reverse = True)
-		for c in contours:
-			# approximate the contour
-			peri = cv2.arcLength(c, True)
-			approx = cv2.approxPolyDP(c, 0.02 * peri, True)
-
-			if len(approx) == 4:
-				cv2.drawContours(imgContours, [approx], -1, 255, 1)
-				# print(approx)
-
-		cv2.imshow("contour lines", imgContours)
-		cv2.imwrite('output/contour.png', imgContours)
+		darwContousImg(img, contours1)
+		darwContousImg(img, contours2)
 
 
 	def update(control, value, state):
@@ -216,6 +328,7 @@ def test(imgOriginal):
 		'hough threshold': 		var(v = 60, 	vmin = 1, vmax = 256				),
 		'hough srn': 			var(v = 0, 		vmin = 1, vmax = 255				),
 		'hough stn': 			var(v = 0, 		vmin = 1, vmax = 255				),
+		'experiment': 			var(v = 0, 		vmin = 1, vmax = 100				),
 		}
 
 	show(state)
