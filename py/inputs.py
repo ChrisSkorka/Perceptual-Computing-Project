@@ -55,18 +55,22 @@ class InputSlider(Input):
 		self.valueView = None
 
 	def updateWidget(self):
-		self.view.SetValue(self.value)
+		self.view.SetValue((self.value - self.min) // self.steps)
 
 	def processUpdate(self, event):
-		self.value = (self.view.GetValue() - self.min) // self.steps * self.steps + self.min
+		self.value = self.view.GetValue() * self.steps + self.min
 		self.valueView.SetLabelText(str(self.value))
 		self.onUpdate()
 
 	def createWxWidget(self, panel):
+
+		totalSteps = (self.max - self.min) // self.steps
 		
 		self.valueView = wx.StaticText(panel, label=str(self.value)+"    ")
-		self.view = wx.Slider(panel, value=self.value, minValue=self.min, maxValue=self.max)
+		self.view = wx.Slider(panel, value=0, minValue=0, maxValue=totalSteps)
 		self.view.Bind(wx.EVT_SCROLL, self.processUpdate)
+
+		self.updateWidget()
 
 		self.view.SetMinSize((300, 30))
 

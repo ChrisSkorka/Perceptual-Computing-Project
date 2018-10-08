@@ -1,5 +1,6 @@
 import sys
 import numpy as np
+import math
 import cv2
 from common import *
 import inputs
@@ -69,6 +70,44 @@ def measureConfidence(imgOriginal, parameters):
 
 def findCorners(img, parameters):
 
+	# blur
+	imgSmooth = smoothImg(img, **parameters)
+	logImg(imgSmooth, 'smoothed')
+
+	# dilate image
+	imgDilated = dilateImg(imgSmooth, **parameters)
+
+	# erode image
+	imgEroded = erodeImg(imgDilated, **parameters)
+	logImg(imgEroded, 'closed')
+	
+	erodedGrey = grayFlaotImg(imgEroded)
+
+	# harris corner detection
+	harrisIntensity = harrisCornerImg(erodedGrey, **parameters)
+	harrisThreshold = harrisThresholdImg(harrisIntensity, **parameters);
+	harrisCorners = paintPixelsImg(img, harrisThreshold, [0, 0, 255])
+	logImg(harrisCorners, 'harris corners')
+
+	# canny edges
+	imgEdges = cannyEdgeImg(erodedGrey, **parameters)
+	logImg(imgEdges, 'canny edges')
+
+	# # probabilistic hough lines
+	# imgProbLines = probabilisticHoughTransformImg(imgEdges, **state)
+
+	# hough lines
+	houghLines = houghTransformLines(imgEdges, **parameters)
+	groupedLines = groupLines(houghLines, **parameters)
+	imgLines = drawLinesImg(black(img), groupedLines, 255)
+	imgLinesOverlay = drawLinesImg(img, groupedLines, (255, 0, 0))
+	logImg(imgLinesOverlay, 'hough lines')
+	logImg(imgLines, 'imgLines')
+
+	# find 4 sided contours
+	contours = contours4Img(imgLines)
+	imgContours = darwContousImg(img, contours)
+	logImg(imgContours, 'contours')
 
 
 
@@ -81,131 +120,209 @@ def logImg(img, name):
 	if saveProgress:
 		cv2.imwrite('output/'+name+".png", img)
 
+def black(size):
+	if type(size) == np.ndarray:
+		return np.zeros(size.shape[:2], dtype=np.uint8)
+	else:
+		return np.zeros(size[:2], dtype=np.uint8)
+
 def grayIntImg(img):
 	return np.uint8(cv2.cvtColor(img, cv2.COLOR_BGR2GRAY))
 	
 def grayFlaotImg(img):
 	return np.float32(cv2.cvtColor(img, cv2.COLOR_BGR2GRAY))
 
-def smoothImg(img, parameters, name = 'gaussian blured'):
+def smoothImg(img, blur_kernel_size, blur_diviation, **args):
 
 	imgSmooth = cv2.GaussianBlur(
 		img, 
-		(parameters['blur kernel size'].v, parameters['blur kernel size'].v), 
-		parameters['blur diviation'].v
+		(blur_kernel_size, blur_kernel_size), 
+		blur_diviation
 	)
-
-	logImg(imgSmooth, name)
 
 	return imgSmooth
 
-def dilateImg(img, parameters, name = 'dilated'):
+def dilateImg(img, dilation_size, **args):
 
 	dilationKernel = cv2.getStructuringElement(
 		cv2.MORPH_RECT, 
-		(parameters['dilation size'].v, parameters['dilation size'].v)
+		(dilation_size, dilation_size)
 	)
 
 	imgDilated = cv2.dilate(img, dilationKernel)
 
-	logImg(imgDilated, name)
-
 	return imgDilated
 
-def erodeImg(img, parameters, name = 'eroded'):
+def erodeImg(img, erode_size, **args):
 
 	erotionKernel = cv2.getStructuringElement(
 		cv2.MORPH_RECT, 
-		(parameters['erode size'].v, parameters['erode size'].v)
+		(erode_size, erode_size)
 	)
 
 	imgEroded = cv2.erode(img, erotionKernel)
 
-	logImg(imgEroded, name)
-
 	return imgEroded
 
-def harrisCornerImg(img, parameters, name = 'harris intensity'):
+def harrisCornerImg(img, harris_block_size, hharris_ksize, harris_k, **args):
 
 	intensity = cv2.cornerHarris(
 		img, 
-		parameters['harris block size'].v, 
-		parameters['harris ksize'].v, 
-		parameters['harris k'].v
+		harris_block_size, 
+		hharris_ksize, 
+		harris_k
 	)
 
 	intensity = intensity / intensity.max()
 
-	logImg(intensity, name)
-
 	return intensity
 
-def nonMaximumSupressImg(img, name = 'harris peaks'):
-
-	logImg(img, name)
+def nonMaximumSupressImg(img, **args):
 
 	return img
 
-def harrisThresholdImg(img, parameters):
+def harrisThresholdImg(img, harris_threashold, **args):
 
-	threshold = img > parameters['harris threashold'].v * img.max()
-
-	# logImg(threshold, 'harris threshold')
+	threshold = img > harris_threashold * img.max()
 
 	return threshold
 
-def paintPixelsImg(img, pixel, color = [0, 0, 255]):
+def paintPixelsImg(img, pixel, color = (0, 0, 255), **args):
 
 	copy = img.copy()
 	copy[pixel] = color
 	return copy
 
-def cannyEdgeImg(img, parameters, name = 'canny edges'):
+def cannyEdgeImg(img, canny_lower, canny_upper, **args):
 	
 	imgEdges = cv2.Canny(
 		np.uint8(img), 
-		parameters['canny lower'].v, 
-		parameters['canny upper'].v
+		canny_lower, 
+		canny_upper
 	)
-
-	logImg(imgEdges, name)
 
 	return imgEdges
 
-def probabilisticHoughTransformImg(img, parameters, name = 'probabilistic hough lines'):
+def probabilisticHoughTransformImg(img, hough_rho, hough_theta, hough_threshold, hough_srn, hough_stn, **args):
 	
-	imgProbLines = np.zeros(img.shape, dtype=np.uint8)
+	imgProbLines = black(img)
 
 	lines = cv2.HoughLinesP(
 		img, 
-		parameters['hough rho'].v, 
-		parameters['hough theta'].v * np.pi / 180, 
-		parameters['hough threshold'].v, 
-		parameters['hough srn'].v, 
-		parameters['hough stn'].v)
+		hough_rho, 
+		hough_theta * np.pi / 180, 
+		hough_threshold, 
+		hough_srn, 
+		hough_stn
+	)
 
 	if lines is not None:
 		for i in range(0, len(lines)):
 			line = lines[i][0]
 			cv2.line(imgProbLines, (line[0], line[1]), (line[2], line[3]), 255, 1)
 
-	logImg(imgProbLines, name)
-
 	return imgProbLines
 
-def houghTransformImg(img, parameters, name = 'hough lines'):
-
-	imgLines = np.zeros(img.shape, dtype=np.uint8)
+def houghTransformLines(img, hough_rho, hough_theta, hough_threshold, **args):
 	
 	lines = cv2.HoughLines(
 		img,
-		parameters['hough rho'].v,
-		parameters['hough theta'].v * np.pi / 180, 
-		parameters['hough threshold'].v
+		hough_rho,
+		hough_theta * np.pi / 180, 
+		hough_threshold
 	)
 
+	if lines is None:
+		return []
+
+	lines = [(r, t) for [[r, t]] in lines]
+
+	# convert all vector magnitues to positive
+	for i in range(len(lines)):
+		(r, t) = lines[i]
+
+		if r < 0:
+			lines[i] = (-r, (t + math.pi) % (2 * math.pi))
+
+	return lines
+
+def groupLines(lines, hough_group_threshold_rho, hough_group_threshold_theta, **args):
+
+	groups = {(r, t):[] for (r, t) in lines}
+
+	tr = hough_group_threshold_rho
+	tt = hough_group_threshold_theta
+
+	for index in groups:
+		for line in lines:
+			dr = index[0] - line[0]
+			dt = index[1] - line[1]
+			if dt < -math.pi:
+				dt += 2 * math.pi
+			if dt > math.pi:
+				dt -= 2 * math.pi
+
+			if index != line and -tr < dr < tr and -tt < dt < tt:
+				groups[index].append(line)
+
+	progress = True
+	while progress:
+		progress = False
+		for index in groups:
+			if groups[index] is not None:
+				for item in groups[index][:]:
+
+					if groups[index] is None:
+						break
+
+					if groups[item] is None:
+						continue
+
+					if len(groups[index]) == len(groups[item]):
+						if index in groups[item]:
+							groups[item].remove(index)
+							progress = True
+						elif item in groups[index]:
+							groups[index].remove(item)
+							progress = True
+
+					elif len(groups[index]) > len(groups[item]):
+						if index in groups[item]:
+							groups[item].remove(index)
+							progress = True
+						elif len(groups[item]) > 0:
+							groups[item].pop()
+							progress = True
+
+					elif len(groups[item]) > len(groups[index]):
+						if item in groups[index]:
+							groups[index].remove(item)
+							progress = True
+						elif len(groups[index]) > 0:
+							groups[index].pop()
+							progress = True
+
+					if len(groups[item]) == 0:
+						groups[item] = None
+
+					if len(groups[index]) == 0:
+						groups[index] = None
+						break
+
+	groupCenters = []
+
+	for index in groups:
+		if groups[index] is not None:
+			groupCenters.append(index)
+
+	return groupCenters
+
+def drawLinesImg(img, lines, color = 255, **args):
+
+	imgLines = img.copy()
+
 	if lines is not None:
-		for [[rho, theta]] in lines:
+		for [rho, theta] in lines:
 			# print(rho, theta)
 			a = np.cos(theta)
 			b = np.sin(theta)
@@ -216,397 +333,100 @@ def houghTransformImg(img, parameters, name = 'hough lines'):
 			x2 = int(x0 - 1000*(-b))
 			y2 = int(y0 - 1000*(a))
 
-			cv2.line(imgLines, (x1, y1), (x2, y2), 255, 1)
-
-	logImg(imgLines, name)
+			cv2.line(imgLines, (x1, y1), (x2, y2), color, 1)
 
 	return imgLines
 
-def contours4Img(img):
+def contours4Img(img, **args):
 
 	contours4 = []
 
-	img0, contours, hierarchy = cv2.findContours(img, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
-	contours = sorted(contours, key = cv2.contourArea, reverse = True)
-	for c in contours:
+	img0, allContours, hierarchy = cv2.findContours(black(img), cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
+	allContours = sorted(allContours, key = cv2.contourArea, reverse = True)
+	for contour in allContours:
 
 		# approximate the contour
-		peri = cv2.arcLength(c, True)
-		approx = cv2.approxPolyDP(c, 0.02 * peri, True)
+		peri = cv2.arcLength(contour, True)
+		approx = cv2.approxPolyDP(contour, 0.02 * peri, True)
 
 		if len(approx) == 4:
 			contours4.append(approx)
-			# cv2.drawContours(imgContours, [approx], -1, (255, 0, 0), 1)
 
 	return contours4
 
-def darwContousImg(img, contours, color = (255, 0, 0), name = 'contour lines'):
+def darwContousImg(img, contours, color = (0, 255, 0), **args):
 	
-	copy = img.copy()
+	imgContours = img.copy()
 
-	cv2.drawContours(copy, contours, -1, color, 1)
+	cv2.drawContours(imgContours, contours, -1, color, 1)
 
-	logImg(copy, name)
+	return imgContours
 
-	return copy
+def findLineIntersectionsPoints(lines, **args):
+
+	points = []
+
+	for (pa, ta) in lines:
+		for (pb, tb) in lines:
+			xa = (math.sin(ta) * (pb - )) + ()
+
+
+	return points
+
+
 
 def test(img):
 
 	def show(state):
 
-		cv2.imwrite('output/original.png', img)
-
-		# blur
-		imgBlured = smoothImg(img, state)
-
-		# dilate image
-		imgDilated = dilateImg(imgBlured, state)
-
-		# erode image
-		imgEroded = erodeImg(imgDilated, state)
-		
-		erodedGrey = grayFlaotImg(imgEroded)
-
-		# harris corner detection
-		harrisIntensity = harrisCornerImg(erodedGrey, state)
-		
-		harrisPeaks = nonMaximumSupressImg(harrisIntensity)
-
-		harrisThreshold = harrisThresholdImg(harrisIntensity, state);
-
-		harrisCorners = paintPixelsImg(img, harrisThreshold, [0, 0, 255])
-		logImg(harrisCorners, 'harris corners')
-		
-		# # dilate image
-		# harrisCornersDilated = dilateImg(harrisIntensity, state, 'harris dilated')
-
-		# # erode image
-		# harrisCornersEroded = erodeImg(harrisCornersDilated, state, 'harris eroded')
-
-		# canny edges
-		imgEdges = cannyEdgeImg(erodedGrey, state)
-
-		# probabilistic hough lines
-		imgProbLines = probabilisticHoughTransformImg(imgEdges, state)
-
-		# hough lines
-		imgLines = houghTransformImg(imgEdges, state)
-
-		# find 4 sided contours
-		contours1 = contours4Img(imgProbLines)
-		contours2 = contours4Img(imgLines)
-
-		darwContousImg(img, contours1)
-		darwContousImg(img, contours2)
+		findCorners(img, state)
 
 
 	def update(control, value, state):
-		state[control.name].v = value * state[control.name].scale
+		state[control.name] = value
 		show(state)
 
 	class var:
-		def __init__(self, v, vmin, vmax, steps = 1, scale = 1):
+		def __init__(self, v, vmin, vmax, steps = 1):
 			self.v = v
 			self.min = vmin
 			self.max = vmax
 			self.steps = steps
-			self.scale = scale
 
-	state = {
-		'blur kernel size': 	var(v = 3, 		vmin = 1, vmax = 15, steps = 2		),
-		'blur diviation': 		var(v = 1, 		vmin = 1, vmax = 9					),
-		'dilation size': 		var(v = 6, 		vmin = 1, vmax = 50					),
-		'erode size': 			var(v = 6, 		vmin = 1, vmax = 50					),
-		'harris block size': 	var(v = 25, 	vmin = 1, vmax = 31, steps = 2		),
-		'harris ksize': 		var(v = 3, 		vmin = 1, vmax = 31,  steps = 2		),
-		'harris k': 			var(v = 0.04, 	vmin = 1, vmax = 1000, scale = 0.001),
-		'harris threashold':	var(v = 0.03, 	vmin = 1, vmax = 1000, scale = 0.001),
-		'canny lower': 			var(v = 50, 	vmin = 1, vmax = 255				),
-		'canny upper': 			var(v = 200, 	vmin = 1, vmax = 255				),
-		'hough rho': 			var(v = 1, 		vmin = 1, vmax = 32					),
-		'hough theta': 			var(v = 1	, 	vmin = 1, vmax = 360				),
-		'hough threshold': 		var(v = 60, 	vmin = 1, vmax = 256				),
-		'hough srn': 			var(v = 0, 		vmin = 1, vmax = 255				),
-		'hough stn': 			var(v = 0, 		vmin = 1, vmax = 255				),
-		'experiment': 			var(v = 0, 		vmin = 1, vmax = 100				),
+	state = {}
+	parameters = {
+		'blur_kernel_size': 			var(v = 3, 		vmin = 1, vmax = 15, 	steps = 2		),
+		'blur_diviation': 				var(v = 1, 		vmin = 1, vmax = 9						),
+		'dilation_size': 				var(v = 6, 		vmin = 1, vmax = 50						),
+		'erode_size': 					var(v = 6, 		vmin = 1, vmax = 50						),
+		'harris_block_size': 			var(v = 25, 	vmin = 1, vmax = 31, 	steps = 2		),
+		'hharris_ksize': 				var(v = 3, 		vmin = 1, vmax = 31,  	steps = 2		),
+		'harris_k': 					var(v = 0.04, 	vmin = 0, vmax = 1, 	steps = 0.001	),
+		'harris_threashold':			var(v = 0.03, 	vmin = 0, vmax = 1, 	steps = 0.001	),
+		'canny_lower': 					var(v = 50, 	vmin = 1, vmax = 255					),
+		'canny_upper': 					var(v = 200, 	vmin = 1, vmax = 255					),
+		'hough_rho': 					var(v = 1, 		vmin = 1, vmax = 32						),
+		'hough_theta': 					var(v = 1,	 	vmin = 1, vmax = 360					),
+		'hough_threshold': 				var(v = 60, 	vmin = 1, vmax = 256					),
+		'hough_srn': 					var(v = 0, 		vmin = 1, vmax = 255					),
+		'hough_stn': 					var(v = 0, 		vmin = 1, vmax = 255					),
+		'hough_group_threshold_rho': 	var(v = 10,		vmin = 0, vmax = 100					),
+		'hough_group_threshold_theta': 	var(v = 0.1, 	vmin = 0, vmax = 0.5, 	steps = 0.01	),
 		}
 
-	show(state)
 
 	app = App()
 	ins = inputs.Inputs(state=state)
 
-	for name in state:
-		properties = state[name]
-		slider = inputs.InputSlider(name, properties.v / properties.scale, onUpdate=update, sMin=properties.min, sMax=properties.max, sSteps=properties.steps)
+	for name in parameters:
+		properties = parameters[name]
+		state[name] = properties.v
+		slider = inputs.InputSlider(name, properties.v, onUpdate=update, sMin=properties.min, sMax=properties.max, sSteps=properties.steps)
 		ins.addInput(slider)
 
-	ins.getFrames()
-	app.show()
-
-
-
-def gaussianBlur(imgOriginal):
-	
-	def show(state):
-		imgGrey = cv2.cvtColor(np.uint8(imgOriginal), cv2.COLOR_BGR2GRAY)
-		imgGrey = np.float32(imgGrey)
-		imgColor = imgOriginal.copy()
-
-		blured = cv2.GaussianBlur(imgOriginal, (state[0], state[0]), state[1])
-
-		cv2.imshow('blured', blured)		
-
-	def update1(control, value, state):
-		state[0] = value
-		show(state)	
-
-	def update2(control, value, state):
-		state[1] = value
-		show(state)
-
-	state = [3, 1]
-
-	app = App()
-
-	slider1 = inputs.InputSlider("size", 2, onUpdate=update1, sMin=1, sMax=50, sSteps=2)
-	slider2 = inputs.InputSlider("sdv", 2, onUpdate=update2, sMin=1, sMax=50, sSteps=2)
-
-	ins = inputs.Inputs(state=state)
-
-	ins.addInput(slider1)
-	ins.addInput(slider2)
-	ins.getFrames()
-
 	show(state)
-
-	app.show()
-
-# find corners in image and finds the four page corners
-# parameters: 	imgGrey:			grey scale image
-# returns:		( (x, y), ... ):	four corners that are the page
-def findCorners(imgOriginal):
-
-	# cv2.imshow('orb', imgOriginal)
-	# img = np.copy(imgOriginal)
-	# cv2.waitKey(10000)
-
-	# # Initiate ORB detector
-	# orb = cv2.ORB_create()
-	# # find the keypoints with ORB
-	# kp = orb.detect(img, None)
-	# # compute the descriptors with ORB
-	# kp, des = orb.compute(img, kp)
-	# # draw only keypoints location,not size and orientation
-	# img2 = cv2.drawKeypoints(img, kp, None, color = (0, 0, 255), flags = 5)
-	# cv2.imshow('orb', img)
-
-	def show(state):
-		imgGrey = cv2.cvtColor(np.uint8(imgOriginal), cv2.COLOR_BGR2GRAY)
-		imgGrey = np.float32(imgGrey)
-		imgColor = imgOriginal.copy()
-
-		dst = cv2.cornerHarris(imgGrey, state[0], state[1], state[2])
-
-		#result is dilated for marking the corners, not important
-		dst = cv2.dilate(dst, None)
-
-		# Threshold for an optimal value, it may vary depending on the image.
-		imgColor[dst > state[3] * dst.max()] = [0,0,255]
-
-		cv2.imshow('corners', imgColor)		
-
-	def update1(control, value, state):
-		state[0] = value
-		show(state)	
-
-	def update2(control, value, state):
-		state[1] = value
-		show(state)	
-
-	def update3(control, value, state):
-		state[2] = value / 1000
-		show(state)	
-
-	def update4(control, value, state):
-		state[3] = value / 1000
-		show(state)
-
-	state = [2, 5, 0.01, 0.01]
-
-	app = App()
-
-	slider1 = inputs.InputSlider("threshold1", 2, onUpdate=update1, sMin=1, sMax=50, sSteps=1)
-	slider2 = inputs.InputSlider("threshold2", 5, onUpdate=update2, sMin=3, sMax=31, sSteps=2)
-	slider3 = inputs.InputSlider("threshold3/1000", 10, onUpdate=update3, sMin=1, sMax=1000, sSteps=1)
-	slider4 = inputs.InputSlider("threshold4/1000", 10, onUpdate=update4, sMin=1, sMax=1000, sSteps=1)
-
-	ins = inputs.Inputs(state=state)
-
-	ins.addInput(slider1)
-	ins.addInput(slider2)
-	ins.addInput(slider3)
-	ins.addInput(slider4)
 	ins.getFrames()
-
 	app.show()
-
-def findEdges(imgOriginal):
-
-	def show(state):
-		imgGrey = cv2.cvtColor(np.uint8(imgOriginal), cv2.COLOR_BGR2GRAY)
-
-		edges = cv2.Canny(imgGrey, state[0], state[1])
-
-		cv2.imshow('edges', edges)		
-
-	def update1(control, value, state):
-		state[0] = value
-		show(state)	
-
-	def update2(control, value, state):
-		state[1] = value
-		show(state)	
-
-	state = [35, 275]
-
-	app = App()
-
-	slider1 = inputs.InputSlider("threshold1", 35, onUpdate=update1, sMin=0, sMax=500, sSteps=1)
-	slider2 = inputs.InputSlider("threshold2", 275, onUpdate=update2, sMin=0, sMax=500, sSteps=1)
-
-	ins = inputs.Inputs(state=state)
-
-	ins.addInput(slider1)
-	ins.addInput(slider2)
-	ins.getFrames()
-
-	show(state)
-
-	app.show()
-
-def findEdgesAndCorners(imgOriginal):
-
-	def show(state):
-		imgGrey = cv2.cvtColor(np.uint8(imgOriginal), cv2.COLOR_BGR2GRAY)
-		imgColor = imgOriginal.copy()
-
-		edges = cv2.Canny(imgGrey, state[0], state[1])
-		edges = np.float32(edges)
-		edgesColor = cv2.cvtColor(np.uint8(edges), cv2.COLOR_GRAY2BGR)
-
-		dst = cv2.cornerHarris(edges, state[2], state[3], state[4])
-
-		#result is dilated for marking the corners, not important
-		dst = cv2.dilate(dst, None)
-
-		# Threshold for an optimal value, it may vary depending on the image.
-		edgesColor[dst > state[5] * dst.max()] = [0,0,255]
-
-		cv2.imshow('edges and corners', edgesColor)
-
-	def update1(control, value, state):
-		state[0] = value
-		show(state)	
-
-	def update2(control, value, state):
-		state[1] = value
-		show(state)		
-
-	def update3(control, value, state):
-		state[2] = value
-		show(state)	
-
-	def update4(control, value, state):
-		state[3] = value
-		show(state)	
-
-	def update5(control, value, state):
-		state[4] = value / 1000
-		show(state)	
-
-	def update6(control, value, state):
-		state[5] = value / 1000
-		show(state)
-
-	state = [35, 275, 2, 5, 0.01, 0.01]
-
-	app = App()
-
-	slider1 = inputs.InputSlider("threshold1", 35, onUpdate=update1, sMin=0, sMax=500, sSteps=1)
-	slider2 = inputs.InputSlider("threshold2", 275, onUpdate=update2, sMin=0, sMax=500, sSteps=1)
-	slider3 = inputs.InputSlider("threshold3", 2, onUpdate=update3, sMin=1, sMax=50, sSteps=1)
-	slider4 = inputs.InputSlider("threshold4", 5, onUpdate=update4, sMin=3, sMax=31, sSteps=2)
-	slider5 = inputs.InputSlider("threshold5/1000", 10, onUpdate=update5, sMin=1, sMax=1000, sSteps=1)
-	slider6 = inputs.InputSlider("threshold6/1000", 10, onUpdate=update6, sMin=1, sMax=1000, sSteps=1)
-
-	ins = inputs.Inputs(state=state)
-
-	ins.addInput(slider1)
-	ins.addInput(slider2)
-	ins.addInput(slider3)
-	ins.addInput(slider4)
-	ins.addInput(slider5)
-	ins.addInput(slider6)
-	ins.getFrames()
-
-	show(state)
-
-	app.show()
-
-def findLines(imgOriginal):
-
-	def show(state):
-		imgGrey = cv2.cvtColor(np.uint8(imgOriginal), cv2.COLOR_BGR2GRAY)
-
-		edges = cv2.Canny(imgGrey, state[0], state[1])	
-
-		edgesL = edges // 15
-		lines = cv2.HoughLinesP(edges, 1, np.pi / 180, state[2], 100, state[3])
-		if lines is not None:
-			for i in range(0, len(lines)):
-				line = lines[i][0]
-				cv2.line(edgesL, (line[0], line[1]), (line[2], line[3]), 200, 1)
-		cv2.imshow("edgesL", edgesL)
-
-	def update1(control, value, state):
-		state[0] = value
-		show(state)	
-
-	def update2(control, value, state):
-		state[1] = value
-		show(state)	
-
-	def update3(control, value, state):
-		state[2] = value
-		show(state)	
-
-	def update4(control, value, state):
-		state[3] = value
-		show(state)	
-
-	state = [10, 100, 35, 275]
-
-	app = App()
-
-	slider1 = inputs.InputSlider("threshold1", 35, onUpdate=update1, sMin=0, sMax=500, sSteps=1)
-	slider2 = inputs.InputSlider("threshold2", 275, onUpdate=update2, sMin=0, sMax=500, sSteps=1)
-	slider3 = inputs.InputSlider("threshold3", 10, onUpdate=update3, sMin=0, sMax=100, sSteps=1)
-	slider4 = inputs.InputSlider("threshold4", 100, onUpdate=update4, sMin=0, sMax=20, sSteps=1)
-
-	ins = inputs.Inputs(state=state)
-
-	ins.addInput(slider1)
-	ins.addInput(slider2)
-	ins.addInput(slider3)
-	ins.addInput(slider4)
-	ins.getFrames()
-
-	show(state)
-
-	app.show()
-
-	cv2.waitKey(10000)
 
 # run main program
 if __name__ == "__main__":
