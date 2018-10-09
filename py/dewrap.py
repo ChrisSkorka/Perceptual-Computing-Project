@@ -4,6 +4,7 @@ from common import *
 import inputs
 
 # global variables
+manualMode = False
 showProgress = True
 saveProgress = False
 applyBimeans = False
@@ -48,6 +49,9 @@ class Page:
 		d['cornerCornerMatchCount'] = self.cornerCornerMatchCount
 		return str(d)
 
+# represents the preoperties if a parameters for the image processing methods
+# it holds, the default value, minimum, maximum and steps in which the parameter
+# can be altered
 class Property:
 	def __init__(self, value, vmin, vmax, steps = 1, fixed = False):
 		self.value = value
@@ -66,7 +70,7 @@ def main():
 		return
 
 	for file in sys.argv[1:]:
-		processImageFile(file)
+		img = processImageFile(file)
 
 # processes each image file
 # parameters: 	filename: String	file to be processed
@@ -79,81 +83,104 @@ def processImageFile(filename):
 	# show
 	cv2.imshow('imgOriginal', img)
 
-	# test all parameters
-	# test(img)
+	if manualMode:
+		# test all parameters
+		test(img)
 
-	parameters = findOptimalParameters(img)
+	else:
 
-	transformed = applyTransformation(img, parameters)
+		# find optimal parameters
+		parameters = findOptimalParameters(img)
 
-	if applyBimeans:
-		gray = cv2.cvtColor(transformed, cv2.COLOR_BGR2GRAY)
-		transformed = binmeans(gray)
+		# transform image accordingly
+		transformed = applyTransformation(img, parameters)
 
+		# if selected apply bi means to produce a black and white image
+		if applyBimeans:
+			gray = cv2.cvtColor(transformed, cv2.COLOR_BGR2GRAY)
+			transformed = binmeans(gray)
 
-	logImg(transformed, 'final')
+		# show final image
+		# index = filename.rfind('\.')
+		# newfilename = filename[:index] + "_document." + filename[index+1:]
+		logImg(transformed, 'final', True)
 
-	cv2.waitKey(10000)
+		cv2.waitKey(10000)
 
-	# max(pages, key = lambda p:p.confidence)
+		return transformed
 
+# local search algorithm to optimise parameters, implements steepest ascent algorithm
 def findOptimalParameters(img):
 
 	properties = {
-		'blur_kernel_size': 			Property(value = 3, 	vmin = 1, vmax = 15, 	steps = 2		),
-		'blur_diviation': 				Property(value = 1, 	vmin = 1, vmax = 9,						),
-		'dilation_size': 				Property(value = 6, 	vmin = 1, vmax = 50,					),
-		'erode_size': 					Property(value = 6, 	vmin = 1, vmax = 50,					),
+		'blur_kernel_size': 			Property(value = 3, 	vmin = 1, vmax = 15, 	steps = 2, 	fixed = True		),
+		'blur_diviation': 				Property(value = 1, 	vmin = 1, vmax = 9,						fixed = True	),
+		'close_size': 					Property(value = 5, 	vmin = 1, vmax = 50,					),
 		'harris_block_size': 			Property(value = 25, 	vmin = 1, vmax = 31, 	steps = 2		),
-		'hharris_ksize': 				Property(value = 3, 	vmin = 1, vmax = 31,  	steps = 2		),
-		'harris_k': 					Property(value = 0.04, 	vmin = 0, vmax = 1, 	steps = 0.001	),
+		'harris_ksize': 				Property(value = 3, 	vmin = 1, vmax = 31,  	steps = 2, 		fixed = True	),
+		'harris_k': 					Property(value = 0.04, 	vmin = 0, vmax = 1, 	steps = 0.001, 	fixed = True	),
 		'harris_threashold':			Property(value = 0.03, 	vmin = 0, vmax = 1, 	steps = 0.001	),
 		'canny_lower': 					Property(value = 50, 	vmin = 1, vmax = 255,					),
-		'canny_upper': 					Property(value = 200, 	vmin = 1, vmax = 255,					),
+		'canny_upper': 					Property(value = 100, 	vmin = 1, vmax = 255,					),
 		'hough_rho': 					Property(value = 1, 	vmin = 1, vmax = 32,					),
 		'hough_theta': 					Property(value = 1,	 	vmin = 1, vmax = 360,					),
-		'hough_threshold': 				Property(value = 60, 	vmin = 1, vmax = 256,					),
+		'hough_threshold': 				Property(value = 60, 	vmin = 40, vmax = 256,					),
 		'hough_srn': 					Property(value = 0, 	vmin = 0, vmax = 255,	fixed = True	),
 		'hough_stn': 					Property(value = 0, 	vmin = 0, vmax = 255,	fixed = True	),
 		'hough_group_threshold_rho': 	Property(value = 10,	vmin = 0, vmax = 100,					),
 		'hough_group_threshold_theta': 	Property(value = 0.1, 	vmin = 0, vmax = 0.5, 	steps = 0.01	),
-		'perpective_threshold_theta': 	Property(value = 0.5,	vmin = 0, vmax = 3.0, 	steps = 0.01	),
+		'perpective_threshold_theta': 	Property(value = 0.4,	vmin = 0, vmax = 0.7, 	steps = 0.01	),
 	}
 
 	parameters = {name:properties[name].value for name in properties}
 
 	confidence = measureConfidenceOfParameters(img, parameters)
+	cv2.waitKey(100)
 
 	while confidence == 0:
+		print("try random")
 		for parname in parameters:
 			if not properties[parname].fixed:
 				randomInRange = random.randint(0, (properties[parname].max - properties[parname].min ) / properties[parname].steps)
 				parameters[parname] = properties[parname].min + randomInRange * properties[parname].steps
 		confidence = measureConfidenceOfParameters(img, parameters)
+	
+		cv2.waitKey(100)
 
-	for i in range(15):
-		
+	progress = True
+	while progress:
+		progress = False
+		print("next")
 		nextParameters = parameters.copy()
 
-		for parname in parameters:
-			if not properties[parname].fixed:
-				if parameters[parname] < properties[parname].max:
-					testParameters = parameters.copy()
-					testParameters[parname] += properties[parname].steps
-					if measureConfidenceOfParameters(img, testParameters) > confidence:
-						nextParameters[parname] = testParameters[parname]
+		for name in parameters:
+			if not properties[name].fixed:
 
-				if parameters[parname] > properties[parname].min:
+				cahnge = random.randint(0, 10)
+				# cahnge = 1
+				upperValue = parameters[name] + cahnge * properties[name].steps
+				lowerValue = parameters[name] - cahnge * properties[name].steps
+
+				if upperValue <= properties[name].max:
 					testParameters = parameters.copy()
-					testParameters[parname] -= properties[parname].steps
+					testParameters[name] = upperValue
 					if measureConfidenceOfParameters(img, testParameters) > confidence:
-						nextParameters[parname] = testParameters[parname]
+						nextParameters[name] = upperValue
+						progress = True
+
+				if lowerValue >= properties[name].min:
+					testParameters = parameters.copy()
+					testParameters[name] = lowerValue
+					if measureConfidenceOfParameters(img, testParameters) > confidence:
+						nextParameters[name] = lowerValue
+						progress = True
 
 		parameters = nextParameters
 		confidence = measureConfidenceOfParameters(img, parameters)
-		print(i, confidence, parameters, sep = "\n")
+		print(confidence, parameters, sep = "\n")
+		cv2.waitKey(100)
 
-		cv2.waitKey(1000)
+	# 	cv2.waitKey(1000)
 
 	return parameters
 
@@ -179,6 +206,7 @@ def measureConfidenceOfParameters(img, parameters):
 
 	return overallConfidence
 
+# find all possible pages in the image gien the parameters
 def findPages(img, parameters):
 
 	# blur
@@ -210,21 +238,18 @@ def findPages(img, parameters):
 	# hough lines
 	houghLines = houghTransformLines(imgEdges, **parameters)
 	groupedLines = groupLines(houghLines, **parameters)
-	imgLines = drawLinesImg(black(img), groupedLines, 255)
-	imgLinesOverlay = drawLinesImg(img, groupedLines, (255, 0, 0))
-	# logImg(imgLinesOverlay, 'hough lines')
-	logImg(imgLines, 'imgLines')
+	horizontalLines, verticalLines = filterHorizontalAnfVerticalLines(groupedLines, **parameters)
+	imgLines = drawLinesImg(black(img), horizontalLines, 255)
+	imgLines = drawLinesImg(imgLines, verticalLines, 255)
+	logImg(imgLines, 'hough lines')
 
 	# find 4 sided contours
-	contours = contours4Img(imgLines)
-	imgContours = darwContousImg(img, contours)
+	# contours = contours4Img(imgLines)
+	# imgContours = darwContousImg(img, contours)
 	# logImg(imgContours, 'contours')
 
-	# find line intersections
-	# points = findLineIntersectionsPoints(groupedLines, img.shape[:2])
-	# imgPoints = drawPointsImg(imgLines, points, radius = 5)
-	# logImg(imgPoints, 'points')
-	rectangles = findRectangles(groupedLines, img.shape[:2], **parameters)
+	# find line intersections and corresponding rectangles
+	rectangles = findRectangles(horizontalLines, verticalLines, img.shape[:2], **parameters)
 	imgRectangles = darwRectanglesImg(img, rectangles, (0, 255, 0))
 	logImg(imgRectangles, 'rectangles')
 
@@ -235,6 +260,7 @@ def findPages(img, parameters):
 	# create page objects
 	pages = [Page(r) for r in rectangles]
 
+	# count number of corners of page that match with corners form Harris results
 	countCornerMatchesPages(harrisThreshold, pages)
 
 	for page in pages:
@@ -242,6 +268,7 @@ def findPages(img, parameters):
 
 	return pages
 
+# find page and apply transformations according to parameters
 def applyTransformation(img, parameters):
 	
 	pages = findPages(img, parameters)
@@ -251,7 +278,8 @@ def applyTransformation(img, parameters):
 	logImg(imgTransformed, 'transformed')
 
 	return imgTransformed
-	
+
+# show and or save an image	
 def logImg(img, name, overrideShow = False, overrideSave = False):
 	if showProgress or overrideShow:
 		cv2.imshow(name, img)
@@ -259,18 +287,22 @@ def logImg(img, name, overrideShow = False, overrideSave = False):
 	if saveProgress or overrideSave:
 		cv2.imwrite('output/'+name+".png", img)
 
+# black image with given size or size of given image
 def black(size):
 	if type(size) == np.ndarray:
 		return np.zeros(size.shape[:2], dtype=np.uint8)
 	else:
 		return np.zeros(size[:2], dtype=np.uint8)
 
+# convert image to gray scale
 def grayIntImg(img):
 	return np.uint8(cv2.cvtColor(img, cv2.COLOR_BGR2GRAY))
 	
+# convert image to float values
 def grayFlaotImg(img):
 	return np.float32(cv2.cvtColor(img, cv2.COLOR_BGR2GRAY))
 
+# apply smoothing according to parameters
 def smoothImg(img, blur_kernel_size, blur_diviation, **args):
 
 	imgSmooth = cv2.GaussianBlur(
@@ -281,22 +313,24 @@ def smoothImg(img, blur_kernel_size, blur_diviation, **args):
 
 	return imgSmooth
 
-def dilateImg(img, dilation_size, **args):
+# apply dilation according to parameters
+def dilateImg(img, close_size, **args):
 
 	dilationKernel = cv2.getStructuringElement(
-		cv2.MORPH_RECT, 
-		(dilation_size, dilation_size)
+		cv2.MORPH_ELLIPSE, 
+		(close_size, close_size)
 	)
 
 	imgDilated = cv2.dilate(img, dilationKernel)
 
 	return imgDilated
 
-def erodeImg(img, dilation_size, **args):
+# apply ertion according to parameters
+def erodeImg(img, close_size, **args):
 
 	erotionKernel = cv2.getStructuringElement(
 		cv2.MORPH_RECT, 
-		(dilation_size, dilation_size)
+		(close_size, close_size)
 		# (erode_size, erode_size) # local seach increase dilation without increaing erotion
 	)
 
@@ -304,12 +338,13 @@ def erodeImg(img, dilation_size, **args):
 
 	return imgEroded
 
-def harrisCornerImg(img, harris_block_size, hharris_ksize, harris_k, **args):
+# apply harris corner detection according to parameters
+def harrisCornerImg(img, harris_block_size, harris_ksize, harris_k, **args):
 
 	intensity = cv2.cornerHarris(
 		img, 
 		harris_block_size, 
-		hharris_ksize, 
+		harris_ksize, 
 		harris_k
 	)
 
@@ -318,22 +353,21 @@ def harrisCornerImg(img, harris_block_size, hharris_ksize, harris_k, **args):
 
 	return intensity
 
-def nonMaximumSupressImg(img, **args):
-
-	return img
-
+# apply a threashold to harris results according to parameters
 def harrisThresholdImg(img, harris_threashold, **args):
 
 	threshold = img > harris_threashold * img.max()
 
 	return threshold
 
+# paint pixels according to a threshold map
 def paintPixelsImg(img, pixel, color = (0, 0, 255), **args):
 
 	copy = img.copy()
 	copy[pixel] = color
 	return copy
 
+# apply canny edge detection according to parameters
 def cannyEdgeImg(img, canny_lower, canny_upper, **args):
 	
 	imgEdges = cv2.Canny(
@@ -344,6 +378,7 @@ def cannyEdgeImg(img, canny_lower, canny_upper, **args):
 
 	return imgEdges
 
+# apply probabilistic hough transform according to parameters
 def probabilisticHoughTransformImg(img, hough_rho, hough_theta, hough_threshold, hough_srn, hough_stn, **args):
 	
 	imgProbLines = black(img)
@@ -364,6 +399,7 @@ def probabilisticHoughTransformImg(img, hough_rho, hough_theta, hough_threshold,
 
 	return imgProbLines
 
+# apply hough transform according to parameters
 def houghTransformLines(img, hough_rho, hough_theta, hough_threshold, **args):
 	
 	lines = cv2.HoughLines(
@@ -387,6 +423,17 @@ def houghTransformLines(img, hough_rho, hough_theta, hough_threshold, **args):
 
 	return lines
 
+# filter horizontal and vertical lines from all lines according to parameters
+def filterHorizontalAnfVerticalLines(lines, perpective_threshold_theta, **args):
+
+	t = math.sin(perpective_threshold_theta)
+
+	horizontalLines = sorted([l for l in lines if -t < math.cos(l[1]) < t], key = lambda l:l[0])
+	verticalLines =   sorted([l for l in lines if -t < math.sin(l[1]) < t], key = lambda l:l[0])
+
+	return horizontalLines, verticalLines
+
+# group togeather similar lines according to parameters
 def groupLines(lines, hough_group_threshold_rho, hough_group_threshold_theta, **args):
 
 	groups = {(r, t):[] for (r, t) in lines}
@@ -458,6 +505,7 @@ def groupLines(lines, hough_group_threshold_rho, hough_group_threshold_theta, **
 
 	return groupCenters
 
+# draw lines into image
 def drawLinesImg(img, lines, color = 255, **args):
 
 	imgLines = img.copy()
@@ -478,6 +526,7 @@ def drawLinesImg(img, lines, color = 255, **args):
 
 	return imgLines
 
+# find 4 sided contours
 def contours4Img(img, **args):
 
 	contours4 = []
@@ -495,6 +544,7 @@ def contours4Img(img, **args):
 
 	return contours4
 
+# draw contours
 def darwContousImg(img, contours, color = (0, 255, 0), **args):
 	
 	imgContours = img.copy()
@@ -503,37 +553,7 @@ def darwContousImg(img, contours, color = (0, 255, 0), **args):
 
 	return imgContours
 
-def findLineIntersectionsPoints(lines, boundry, **args):
-
-	def sin(x):
-		y = math.sin(x)
-		if y == 0:
-			return 0.001
-		else:
-			return y
-
-	def cos(x):
-		y = math.cos(x)
-		if y == 0:
-			return 0.001
-		else:
-			return y
-	points = []
-
-	for (p1, t1) in lines:
-		for (p2, t2) in lines:
-			if (p1, t1) != (p2, t2):
-
-				if t1 > t2:
-
-					x = int( ( p2 / sin(t2) - p1 / sin(t1) ) / ( cos(t2) / sin(t2) - cos(t1) / sin(t1) ) )
-					y = int( ( p2 / cos(t2) - p1 / cos(t1) ) / ( sin(t2) / cos(t2) - sin(t1) / cos(t1) ) )
-
-					if 0 < x < boundry[1] and 0 < y < boundry[0]:
-						points.append((x, y))
-
-	return points
-
+# find intersection between two lines
 def findLineIntersection(lineA, lineB, **args):
 	
 	def sin(x):
@@ -552,26 +572,13 @@ def findLineIntersection(lineA, lineB, **args):
 
 	p1, t1, p2, t2 = *lineA, *lineB
 
-	# print(p1, t1, p2, t2)
-
 	x = int( ( p2 / sin(t2) - p1 / sin(t1) ) / ( cos(t2) / sin(t2) - cos(t1) / sin(t1) ) )
 	y = int( ( p2 / cos(t2) - p1 / cos(t1) ) / ( sin(t2) / cos(t2) - sin(t1) / cos(t1) ) )
 
 	return (x, y)
 
-def findRectangles(lines, boundry, perpective_threshold_theta, **args):
-
-
-	t = math.sin(perpective_threshold_theta)
-
-	horizontalLines = sorted([l for l in lines if -t < math.cos(l[1]) < t], key = lambda l:l[0])
-	verticalLines =   sorted([l for l in lines if -t < math.sin(l[1]) < t], key = lambda l:l[0])
-
-	# for (rho, theta) in lines:
-	# 	if -t < math.cos(theta) < t:
-	# 		verticalLines.append((rho, theta))
-	# 	if -t < math.sin(theta) < t:
-	# 		horizontalLines.append((rho, theta))
+# find all possible rectangles from all vertical and horizontal lines
+def findRectangles(horizontalLines, verticalLines, boundry, **args):
 
 	horizontalLinePairs = [l for l in itertools.combinations(horizontalLines, 2)]
 	verticalLinePairs =   [l for l in itertools.combinations(verticalLines,   2)]
@@ -591,6 +598,7 @@ def findRectangles(lines, boundry, perpective_threshold_theta, **args):
 
 	return rectangles
 
+# draw all rectangles
 def darwRectanglesImg(img, rectangles, color = 255, **args):
 
 	imgRectangles = img.copy()
@@ -602,6 +610,7 @@ def darwRectanglesImg(img, rectangles, color = 255, **args):
 
 	return imgRectangles
 
+# counte the number of corners of each rectangle that match with harris results
 def countCornerMatchesPages(harrisThreshold, pages, **args):
 	
 	h, w = harrisThreshold.shape
@@ -610,6 +619,7 @@ def countCornerMatchesPages(harrisThreshold, pages, **args):
 			if 0 < y < h and 0 < x < w and harrisThreshold[y, x]:
 				page.cornerCornerMatchCount += 1
 
+# draw all points
 def drawPointsImg(img, points, color = 255, radius = 1):
 
 	imgPoints = img.copy()
@@ -619,6 +629,7 @@ def drawPointsImg(img, points, color = 255, radius = 1):
 
 	return imgPoints
 
+# filters out points that match with harris results
 def filterPointsOnCorners(points, cornerMap):
 
 	filtered = []
@@ -629,6 +640,7 @@ def filterPointsOnCorners(points, cornerMap):
 
 	return filtered
 
+# apply perspective transform on image according the corners of the page
 def perspectiveTransformImg(img, points):
 
 	# top to bottom
@@ -637,7 +649,18 @@ def perspectiveTransformImg(img, points):
 	bottomleft, bottomright = sorted(points[2:], key = lambda p: p[0])
 
 	# calculate bounding box size
-	w, h = max(topright[0] - topleft[0], bottomright[0] - bottomleft[0]), max(bottomleft[1] - topleft[1], bottomright[1] - topright[1])
+	minWidth = min(topright[0] - topleft[0], bottomright[0] - bottomleft[0])
+	maxWidth = max(topright[0] - topleft[0], bottomright[0] - bottomleft[0])
+	minHeight = min(bottomleft[1] - topleft[1], bottomright[1] - topright[1])
+	maxHeight = max(bottomleft[1] - topleft[1], bottomright[1] - topright[1])
+
+	minToMaxWidthRatio = maxWidth / minWidth
+	minToMaxHeightRatio = maxHeight / minHeight
+
+	print(minToMaxWidthRatio, minToMaxHeightRatio)
+
+	w = int(maxWidth * minToMaxHeightRatio)
+	h = int(maxHeight * minToMaxWidthRatio)
 
 	# transformation matrix parameters
 	pointsSource = np.float32([topleft, topright, bottomleft, bottomright])
@@ -750,7 +773,7 @@ def binmeans(img):
 
     return img2
 
-
+# start testing mode with sliders for parameters
 def test(img):
 
 	def show(state):
@@ -771,10 +794,10 @@ def test(img):
 	parameters = {
 		'blur_kernel_size': 			var(v = 3, 		vmin = 1, vmax = 15, 	steps = 2		),
 		'blur_diviation': 				var(v = 1, 		vmin = 1, vmax = 9						),
-		'dilation_size': 				var(v = 6, 		vmin = 1, vmax = 50						),
+		'close_size': 				var(v = 6, 		vmin = 1, vmax = 50						),
 		'erode_size': 					var(v = 6, 		vmin = 1, vmax = 50						),
 		'harris_block_size': 			var(v = 25, 	vmin = 1, vmax = 31, 	steps = 2		),
-		'hharris_ksize': 				var(v = 3, 		vmin = 1, vmax = 31,  	steps = 2		),
+		'harris_ksize': 				var(v = 3, 		vmin = 1, vmax = 31,  	steps = 2		),
 		'harris_k': 					var(v = 0.04, 	vmin = 0, vmax = 1, 	steps = 0.001	),
 		'harris_threashold':			var(v = 0.03, 	vmin = 0, vmax = 1, 	steps = 0.001	),
 		'canny_lower': 					var(v = 50, 	vmin = 1, vmax = 255					),
