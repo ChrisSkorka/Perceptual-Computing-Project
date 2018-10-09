@@ -1,4 +1,4 @@
-import sys, math, itertools, cv2
+import sys, math, random, itertools, cv2
 import numpy as np
 from common import *
 import inputs
@@ -6,6 +6,7 @@ import inputs
 # global variables
 showProgress = True
 saveProgress = False
+applyBimeans = False
 
 # represents a possible page in the image
 # holds the corners, size, area and confidence realted measurements
@@ -48,11 +49,12 @@ class Page:
 		return str(d)
 
 class Property:
-	def __init__(self, value, vmin, vmax, steps = 1):
+	def __init__(self, value, vmin, vmax, steps = 1, fixed = False):
 		self.value = value
 		self.min = vmin
 		self.max = vmax
 		self.steps = steps
+		self.fixed = fixed
 
 # main program, processes each image file specified
 # parameters: 	None
@@ -78,9 +80,18 @@ def processImageFile(filename):
 	cv2.imshow('imgOriginal', img)
 
 	# test all parameters
-	# test(imgOriginal)
+	# test(img)
 
 	parameters = findOptimalParameters(img)
+
+	transformed = applyTransformation(img, parameters)
+
+	if applyBimeans:
+		gray = cv2.cvtColor(transformed, cv2.COLOR_BGR2GRAY)
+		transformed = binmeans(gray)
+
+
+	logImg(transformed, 'final')
 
 	cv2.waitKey(10000)
 
@@ -90,32 +101,59 @@ def findOptimalParameters(img):
 
 	properties = {
 		'blur_kernel_size': 			Property(value = 3, 	vmin = 1, vmax = 15, 	steps = 2		),
-		'blur_diviation': 				Property(value = 1, 	vmin = 1, vmax = 9						),
-		'dilation_size': 				Property(value = 6, 	vmin = 1, vmax = 50						),
-		'erode_size': 					Property(value = 6, 	vmin = 1, vmax = 50						),
+		'blur_diviation': 				Property(value = 1, 	vmin = 1, vmax = 9,						),
+		'dilation_size': 				Property(value = 6, 	vmin = 1, vmax = 50,					),
+		'erode_size': 					Property(value = 6, 	vmin = 1, vmax = 50,					),
 		'harris_block_size': 			Property(value = 25, 	vmin = 1, vmax = 31, 	steps = 2		),
 		'hharris_ksize': 				Property(value = 3, 	vmin = 1, vmax = 31,  	steps = 2		),
 		'harris_k': 					Property(value = 0.04, 	vmin = 0, vmax = 1, 	steps = 0.001	),
 		'harris_threashold':			Property(value = 0.03, 	vmin = 0, vmax = 1, 	steps = 0.001	),
-		'canny_lower': 					Property(value = 50, 	vmin = 1, vmax = 255					),
-		'canny_upper': 					Property(value = 200, 	vmin = 1, vmax = 255					),
-		'hough_rho': 					Property(value = 1, 	vmin = 1, vmax = 32						),
-		'hough_theta': 					Property(value = 1,	 	vmin = 1, vmax = 360					),
-		'hough_threshold': 				Property(value = 60, 	vmin = 1, vmax = 256					),
-		'hough_srn': 					Property(value = 0, 	vmin = 1, vmax = 255					),
-		'hough_stn': 					Property(value = 0, 	vmin = 1, vmax = 255					),
-		'hough_group_threshold_rho': 	Property(value = 10,	vmin = 0, vmax = 100					),
+		'canny_lower': 					Property(value = 50, 	vmin = 1, vmax = 255,					),
+		'canny_upper': 					Property(value = 200, 	vmin = 1, vmax = 255,					),
+		'hough_rho': 					Property(value = 1, 	vmin = 1, vmax = 32,					),
+		'hough_theta': 					Property(value = 1,	 	vmin = 1, vmax = 360,					),
+		'hough_threshold': 				Property(value = 60, 	vmin = 1, vmax = 256,					),
+		'hough_srn': 					Property(value = 0, 	vmin = 0, vmax = 255,	fixed = True	),
+		'hough_stn': 					Property(value = 0, 	vmin = 0, vmax = 255,	fixed = True	),
+		'hough_group_threshold_rho': 	Property(value = 10,	vmin = 0, vmax = 100,					),
 		'hough_group_threshold_theta': 	Property(value = 0.1, 	vmin = 0, vmax = 0.5, 	steps = 0.01	),
 		'perpective_threshold_theta': 	Property(value = 0.5,	vmin = 0, vmax = 3.0, 	steps = 0.01	),
-		}
+	}
 
 	parameters = {name:properties[name].value for name in properties}
 
-	for i in range(10):
-		
+	confidence = measureConfidenceOfParameters(img, parameters)
+
+	while confidence == 0:
+		for parname in parameters:
+			if not properties[parname].fixed:
+				randomInRange = random.randint(0, (properties[parname].max - properties[parname].min ) / properties[parname].steps)
+				parameters[parname] = properties[parname].min + randomInRange * properties[parname].steps
 		confidence = measureConfidenceOfParameters(img, parameters)
 
+	for i in range(15):
+		
+		nextParameters = parameters.copy()
 
+		for parname in parameters:
+			if not properties[parname].fixed:
+				if parameters[parname] < properties[parname].max:
+					testParameters = parameters.copy()
+					testParameters[parname] += properties[parname].steps
+					if measureConfidenceOfParameters(img, testParameters) > confidence:
+						nextParameters[parname] = testParameters[parname]
+
+				if parameters[parname] > properties[parname].min:
+					testParameters = parameters.copy()
+					testParameters[parname] -= properties[parname].steps
+					if measureConfidenceOfParameters(img, testParameters) > confidence:
+						nextParameters[parname] = testParameters[parname]
+
+		parameters = nextParameters
+		confidence = measureConfidenceOfParameters(img, parameters)
+		print(i, confidence, parameters, sep = "\n")
+
+		cv2.waitKey(1000)
 
 	return parameters
 
@@ -127,15 +165,17 @@ def measureConfidenceOfParameters(img, parameters):
 
 	pages = findPages(img, parameters)
 
-	best = max(pages, key = lambda p:p.confidence)
-	imgRectangles = darwRectanglesImg(img, [best.corners], (255, 128, 0))
-	logImg(imgRectangles, 'box')
+	if len(pages) > 0:
+		best = max(pages, key = lambda p:p.confidence)
+		imgRectangles = darwRectanglesImg(img, [best.corners], (255, 128, 0))
+		logImg(imgRectangles, 'box', True)
 
 	# overall confidence = average confidence / num pages
 	overallConfidence = 0
-	for page in pages:
-		overallConfidence += page.confidence
-	overallConfidence /= len(pages)
+	if len(pages) > 0:
+		for page in pages:
+			overallConfidence += page.confidence
+		overallConfidence /= len(pages)
 
 	return overallConfidence
 
@@ -202,17 +242,13 @@ def findPages(img, parameters):
 
 	return pages
 
-def applyParameters(img, parameters):
+def applyTransformation(img, parameters):
 	
 	pages = findPages(img, parameters)
 	best = max(pages, key = lambda p:p.confidence)
 
 	imgTransformed = perspectiveTransformImg(img, best.corners)
 	logImg(imgTransformed, 'transformed')
-	
-	gray = cv2.cvtColor(imgTransformed, cv2.COLOR_BGR2GRAY)
-	imgBin = binmeans(gray)
-	logImg(imgBin, 'otsu')
 
 	return imgTransformed
 	
@@ -256,11 +292,12 @@ def dilateImg(img, dilation_size, **args):
 
 	return imgDilated
 
-def erodeImg(img, erode_size, **args):
+def erodeImg(img, dilation_size, **args):
 
 	erotionKernel = cv2.getStructuringElement(
 		cv2.MORPH_RECT, 
-		(erode_size, erode_size)
+		(dilation_size, dilation_size)
+		# (erode_size, erode_size) # local seach increase dilation without increaing erotion
 	)
 
 	imgEroded = cv2.erode(img, erotionKernel)
@@ -276,7 +313,8 @@ def harrisCornerImg(img, harris_block_size, hharris_ksize, harris_k, **args):
 		harris_k
 	)
 
-	intensity = intensity / intensity.max()
+	if intensity.max() > 0:
+		intensity = intensity / intensity.max()
 
 	return intensity
 
@@ -513,6 +551,8 @@ def findLineIntersection(lineA, lineB, **args):
 			return y
 
 	p1, t1, p2, t2 = *lineA, *lineB
+
+	# print(p1, t1, p2, t2)
 
 	x = int( ( p2 / sin(t2) - p1 / sin(t1) ) / ( cos(t2) / sin(t2) - cos(t1) / sin(t1) ) )
 	y = int( ( p2 / cos(t2) - p1 / cos(t1) ) / ( sin(t2) / cos(t2) - sin(t1) / cos(t1) ) )
