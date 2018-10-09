@@ -1,13 +1,58 @@
-import sys
+import sys, math, itertools, cv2
 import numpy as np
-import math
-import cv2
 from common import *
 import inputs
 
 # global variables
 showProgress = True
 saveProgress = False
+
+# represents a possible page in the image
+# holds the corners, size, area and confidence realted measurements
+class Page:
+	def __init__(self, corners = None):
+		self.corners = corners
+		self.size = (0, 0)
+		self.area = 0
+		self.confidence = 0
+		self.cornerCornerMatchCount = 0
+
+		self.setCorners(corners)
+
+	def setCorners(self, corners):
+		points = sorted(corners, key=lambda p: p[1])
+		topleft, topright = 		sorted(points[:2], key = lambda p: p[0])
+		bottomleft, bottomright = 	sorted(points[2:], key = lambda p: p[0])
+
+		# calculate bounding box size
+		self.size = max(topright[0] - topleft[0], bottomright[0] - bottomleft[0]), max(bottomleft[1] - topleft[1], bottomright[1] - topright[1])
+		self.area = self.size[0] * self.size[1]
+		
+		self.corners = [topleft, topright, bottomleft, bottomright]
+
+	def computeConfidence(self, imgSize):
+		if type(imgSize) == np.ndarray:
+			imgSize = imgSize.shape[:2]
+		
+		normArea = self.area / (imgSize[0] * imgSize[1])
+		normCornerMatchCount = (self.cornerCornerMatchCount + 1) / 5
+		self.confidence = normArea * normCornerMatchCount
+
+	def __repr__(self):
+		d = {}
+		d['corners'] = self.corners
+		d['size'] = self.size
+		d['area'] = self.area
+		d['confidence'] = self.confidence
+		d['cornerCornerMatchCount'] = self.cornerCornerMatchCount
+		return str(d)
+
+class Property:
+	def __init__(self, value, vmin, vmax, steps = 1):
+		self.value = value
+		self.min = vmin
+		self.max = vmax
+		self.steps = steps
 
 # main program, processes each image file specified
 # parameters: 	None
@@ -26,49 +71,75 @@ def main():
 # returns:		None
 def processImageFile(filename):
 
-	# read file and convert to grey scale
-	imgOriginal = cv2.imread(filename)
-	imgOriginalGrey = cv2.cvtColor(imgOriginal, cv2.COLOR_BGR2GRAY)
+	# read file and convert to gray scale
+	img = cv2.imread(filename)
 
 	# show
-	cv2.imshow('imgOriginal', imgOriginal)
+	cv2.imshow('imgOriginal', img)
 
 	# test all parameters
-	test(imgOriginal)
+	# test(imgOriginal)
 
-	# smooth image
-	# smoothed = cv2.GaussianBlur(imgOriginal, (3, 3), 1)
-	# smoothed = cv2.GaussianBlur(imgOriginal, (15, 15), 5)
+	parameters = findOptimalParameters(img)
 
-	# blur image
-	# gaussianBlur(imgOriginal);
+	cv2.waitKey(10000)
 
-	# find the relevant corners
-	# findCorners(smoothed)
+	# max(pages, key = lambda p:p.confidence)
 
-	# find the relevant edges
-	# findEdges(smoothed)
+def findOptimalParameters(img):
 
-	# find edges and find corners from edges
-	# findEdgesAndCorners(smoothed)
-	
-	# find lines from edges
-	# findLines(smoothed)
+	properties = {
+		'blur_kernel_size': 			Property(value = 3, 	vmin = 1, vmax = 15, 	steps = 2		),
+		'blur_diviation': 				Property(value = 1, 	vmin = 1, vmax = 9						),
+		'dilation_size': 				Property(value = 6, 	vmin = 1, vmax = 50						),
+		'erode_size': 					Property(value = 6, 	vmin = 1, vmax = 50						),
+		'harris_block_size': 			Property(value = 25, 	vmin = 1, vmax = 31, 	steps = 2		),
+		'hharris_ksize': 				Property(value = 3, 	vmin = 1, vmax = 31,  	steps = 2		),
+		'harris_k': 					Property(value = 0.04, 	vmin = 0, vmax = 1, 	steps = 0.001	),
+		'harris_threashold':			Property(value = 0.03, 	vmin = 0, vmax = 1, 	steps = 0.001	),
+		'canny_lower': 					Property(value = 50, 	vmin = 1, vmax = 255					),
+		'canny_upper': 					Property(value = 200, 	vmin = 1, vmax = 255					),
+		'hough_rho': 					Property(value = 1, 	vmin = 1, vmax = 32						),
+		'hough_theta': 					Property(value = 1,	 	vmin = 1, vmax = 360					),
+		'hough_threshold': 				Property(value = 60, 	vmin = 1, vmax = 256					),
+		'hough_srn': 					Property(value = 0, 	vmin = 1, vmax = 255					),
+		'hough_stn': 					Property(value = 0, 	vmin = 1, vmax = 255					),
+		'hough_group_threshold_rho': 	Property(value = 10,	vmin = 0, vmax = 100					),
+		'hough_group_threshold_theta': 	Property(value = 0.1, 	vmin = 0, vmax = 0.5, 	steps = 0.01	),
+		'perpective_threshold_theta': 	Property(value = 0.5,	vmin = 0, vmax = 3.0, 	steps = 0.01	),
+		}
 
-	# wait for preview to finish
-	# cv2.waitKey(10000)
+	parameters = {name:properties[name].value for name in properties}
+
+	for i in range(10):
+		
+		confidence = measureConfidenceOfParameters(img, parameters)
+
+
+
+	return parameters
 
 # measure confidence in the results with the specified parameters
 # parameters: 	imgOriginal: nparray	image to test
 #				parameters: {}			parameters to apply 
 # returns:		float: confidence
-def measureConfidence(imgOriginal, parameters):
+def measureConfidenceOfParameters(img, parameters):
 
+	pages = findPages(img, parameters)
 
+	best = max(pages, key = lambda p:p.confidence)
+	imgRectangles = darwRectanglesImg(img, [best.corners], (255, 128, 0))
+	logImg(imgRectangles, 'box')
 
-	return 0
+	# overall confidence = average confidence / num pages
+	overallConfidence = 0
+	for page in pages:
+		overallConfidence += page.confidence
+	overallConfidence /= len(pages)
 
-def findCorners(img, parameters):
+	return overallConfidence
+
+def findPages(img, parameters):
 
 	# blur
 	imgSmooth = smoothImg(img, **parameters)
@@ -81,16 +152,16 @@ def findCorners(img, parameters):
 	imgEroded = erodeImg(imgDilated, **parameters)
 	logImg(imgEroded, 'closed')
 	
-	erodedGrey = grayFlaotImg(imgEroded)
+	erodedGray = grayFlaotImg(imgEroded)
 
 	# harris corner detection
-	harrisIntensity = harrisCornerImg(erodedGrey, **parameters)
+	harrisIntensity = harrisCornerImg(erodedGray, **parameters)
 	harrisThreshold = harrisThresholdImg(harrisIntensity, **parameters);
 	harrisCorners = paintPixelsImg(img, harrisThreshold, [0, 0, 255])
 	logImg(harrisCorners, 'harris corners')
 
 	# canny edges
-	imgEdges = cannyEdgeImg(erodedGrey, **parameters)
+	imgEdges = cannyEdgeImg(erodedGray, **parameters)
 	logImg(imgEdges, 'canny edges')
 
 	# # probabilistic hough lines
@@ -101,23 +172,55 @@ def findCorners(img, parameters):
 	groupedLines = groupLines(houghLines, **parameters)
 	imgLines = drawLinesImg(black(img), groupedLines, 255)
 	imgLinesOverlay = drawLinesImg(img, groupedLines, (255, 0, 0))
-	logImg(imgLinesOverlay, 'hough lines')
+	# logImg(imgLinesOverlay, 'hough lines')
 	logImg(imgLines, 'imgLines')
 
 	# find 4 sided contours
 	contours = contours4Img(imgLines)
 	imgContours = darwContousImg(img, contours)
-	logImg(imgContours, 'contours')
+	# logImg(imgContours, 'contours')
 
+	# find line intersections
+	# points = findLineIntersectionsPoints(groupedLines, img.shape[:2])
+	# imgPoints = drawPointsImg(imgLines, points, radius = 5)
+	# logImg(imgPoints, 'points')
+	rectangles = findRectangles(groupedLines, img.shape[:2], **parameters)
+	imgRectangles = darwRectanglesImg(img, rectangles, (0, 255, 0))
+	logImg(imgRectangles, 'rectangles')
 
+	# points = filterPointsOnCorners(points, harrisThreshold)
+	# imgPoints = drawPointsImg(imgLines, points, radius = 5)
+	# logImg(imgPoints, 'filtered points')
 
-	return []
+	# create page objects
+	pages = [Page(r) for r in rectangles]
 
-def logImg(img, name):
-	if showProgress:
+	countCornerMatchesPages(harrisThreshold, pages)
+
+	for page in pages:
+		page.computeConfidence(img)
+
+	return pages
+
+def applyParameters(img, parameters):
+	
+	pages = findPages(img, parameters)
+	best = max(pages, key = lambda p:p.confidence)
+
+	imgTransformed = perspectiveTransformImg(img, best.corners)
+	logImg(imgTransformed, 'transformed')
+	
+	gray = cv2.cvtColor(imgTransformed, cv2.COLOR_BGR2GRAY)
+	imgBin = binmeans(gray)
+	logImg(imgBin, 'otsu')
+
+	return imgTransformed
+	
+def logImg(img, name, overrideShow = False, overrideSave = False):
+	if showProgress or overrideShow:
 		cv2.imshow(name, img)
 
-	if saveProgress:
+	if saveProgress or overrideSave:
 		cv2.imwrite('output/'+name+".png", img)
 
 def black(size):
@@ -362,25 +465,256 @@ def darwContousImg(img, contours, color = (0, 255, 0), **args):
 
 	return imgContours
 
-def findLineIntersectionsPoints(lines, **args):
+def findLineIntersectionsPoints(lines, boundry, **args):
 
+	def sin(x):
+		y = math.sin(x)
+		if y == 0:
+			return 0.001
+		else:
+			return y
+
+	def cos(x):
+		y = math.cos(x)
+		if y == 0:
+			return 0.001
+		else:
+			return y
 	points = []
 
-	for (pa, ta) in lines:
-		for (pb, tb) in lines:
-			xa = (math.sin(ta) * (pb - )) + ()
+	for (p1, t1) in lines:
+		for (p2, t2) in lines:
+			if (p1, t1) != (p2, t2):
 
+				if t1 > t2:
+
+					x = int( ( p2 / sin(t2) - p1 / sin(t1) ) / ( cos(t2) / sin(t2) - cos(t1) / sin(t1) ) )
+					y = int( ( p2 / cos(t2) - p1 / cos(t1) ) / ( sin(t2) / cos(t2) - sin(t1) / cos(t1) ) )
+
+					if 0 < x < boundry[1] and 0 < y < boundry[0]:
+						points.append((x, y))
 
 	return points
 
+def findLineIntersection(lineA, lineB, **args):
+	
+	def sin(x):
+		y = math.sin(x)
+		if y == 0:
+			return 0.001
+		else:
+			return y
+
+	def cos(x):
+		y = math.cos(x)
+		if y == 0:
+			return 0.001
+		else:
+			return y
+
+	p1, t1, p2, t2 = *lineA, *lineB
+
+	x = int( ( p2 / sin(t2) - p1 / sin(t1) ) / ( cos(t2) / sin(t2) - cos(t1) / sin(t1) ) )
+	y = int( ( p2 / cos(t2) - p1 / cos(t1) ) / ( sin(t2) / cos(t2) - sin(t1) / cos(t1) ) )
+
+	return (x, y)
+
+def findRectangles(lines, boundry, perpective_threshold_theta, **args):
+
+
+	t = math.sin(perpective_threshold_theta)
+
+	horizontalLines = sorted([l for l in lines if -t < math.cos(l[1]) < t], key = lambda l:l[0])
+	verticalLines =   sorted([l for l in lines if -t < math.sin(l[1]) < t], key = lambda l:l[0])
+
+	# for (rho, theta) in lines:
+	# 	if -t < math.cos(theta) < t:
+	# 		verticalLines.append((rho, theta))
+	# 	if -t < math.sin(theta) < t:
+	# 		horizontalLines.append((rho, theta))
+
+	horizontalLinePairs = [l for l in itertools.combinations(horizontalLines, 2)]
+	verticalLinePairs =   [l for l in itertools.combinations(verticalLines,   2)]
+
+	lineQuadruplets = [(x, y) for x in verticalLinePairs for y in horizontalLinePairs]
+
+	rectangles = []
+
+	for quad in lineQuadruplets:
+		corner = (
+			findLineIntersection(quad[0][0], quad[1][0]),
+			findLineIntersection(quad[0][0], quad[1][1]),
+			findLineIntersection(quad[0][1], quad[1][0]),
+			findLineIntersection(quad[0][1], quad[1][1]),
+		)
+		rectangles.append(corner)
+
+	return rectangles
+
+def darwRectanglesImg(img, rectangles, color = 255, **args):
+
+	imgRectangles = img.copy()
+
+	for rect in rectangles:
+		pts = np.array([rect[0], rect[1], rect[3], rect[2]], np.int32)
+		pts = pts.reshape((-1,1,2))
+		cv2.polylines(imgRectangles, [pts], True, color)
+
+	return imgRectangles
+
+def countCornerMatchesPages(harrisThreshold, pages, **args):
+	
+	h, w = harrisThreshold.shape
+	for page in pages:
+		for (x, y) in page.corners:
+			if 0 < y < h and 0 < x < w and harrisThreshold[y, x]:
+				page.cornerCornerMatchCount += 1
+
+def drawPointsImg(img, points, color = 255, radius = 1):
+
+	imgPoints = img.copy()
+
+	for point in points:
+		cv2.circle(imgPoints, point, radius, color)
+
+	return imgPoints
+
+def filterPointsOnCorners(points, cornerMap):
+
+	filtered = []
+
+	for (x, y) in points:
+		if cornerMap[y, x]:
+			filtered.append((x, y))
+
+	return filtered
+
+def perspectiveTransformImg(img, points):
+
+	# top to bottom
+	points.sort(key=lambda p: p[1])
+	topleft, topright = sorted(points[:2], key = lambda p: p[0])
+	bottomleft, bottomright = sorted(points[2:], key = lambda p: p[0])
+
+	# calculate bounding box size
+	w, h = max(topright[0] - topleft[0], bottomright[0] - bottomleft[0]), max(bottomleft[1] - topleft[1], bottomright[1] - topright[1])
+
+	# transformation matrix parameters
+	pointsSource = np.float32([topleft, topright, bottomleft, bottomright])
+	pointsDestination = np.float32([(0, 0), (w, 0), (0, h), (w, h)])
+
+	inset = 0.01
+	winset = w*inset
+	hinset = h*inset
+	insetMatrix = np.float32([[winset, hinset], [-winset, hinset], [winset, -hinset], [-winset, -hinset]])
+	pointsSource = pointsSource + insetMatrix
+
+	matrix = cv2.getPerspectiveTransform(pointsSource, pointsDestination)
+	imgTransform = cv2.warpPerspective(img, matrix, (w, h))
+
+	return imgTransform
+
+# compute the optimal threshold and colour center for a given section
+def getThresholdAndCenters(img):
+
+    # one long array and turn into floats
+    imgarray = np.float32(img.flatten())
+
+    # find centers
+    # center = np.array([[0, 0, 0], [255, 255, 255]])
+    centers = np.array([0, 255])
+
+    # image histogram
+    histogram = np.histogram(imgarray, 256, (0, 255))[0]
+    normHistogram = histogram / histogram.sum()
+
+    # init values
+    threshold = 0
+    histogramSum = (normHistogram * np.arange(256)).sum()
+    sum0 = 0
+    q0 = 0
+    maxVariance = 0
+
+    # calculate each between variance and note max
+    for t in range(0, 256):
+        q0 += normHistogram[t]
+        q1 = 1 - q0
+        if q0 == 0 or q1 == 0:
+            continue
+        sum0 += t * normHistogram[t]
+        sum1 = histogramSum - sum0
+        mean0 = sum0 / q0
+        mean1 = sum1 / q1
+        variance = q0 * q1 * (mean0 - mean1) ** 2
+
+        if variance > maxVariance:
+            maxVariance = variance
+            threshold = t
+            centers = [mean0, mean1]
+
+    return threshold, centers
+
+# split images colour space into 2 distinct colours
+def binmeans(img):
+    
+    # size
+    yRange, xRange = img.shape
+
+    thresholds = np.zeros(img.shape)
+    basethresholds = [[0, 0], [0, 0]]
+    baseCenters = np.array([[[0, 255], [0, 255]], [[0, 255], [0, 255]]])
+    basethresholds[0][0], baseCenters[0][0] = getThresholdAndCenters(img[:yRange//2, :xRange//2])
+    basethresholds[0][1], baseCenters[0][1] = getThresholdAndCenters(img[:yRange//2, xRange//2:])
+    basethresholds[1][0], baseCenters[1][0] = getThresholdAndCenters(img[yRange//2:, :xRange//2])
+    basethresholds[1][1], baseCenters[1][1] = getThresholdAndCenters(img[yRange//2:, xRange//2:])
+
+    # get max values for center colours
+    centers = np.array([baseCenters[:,:,0].min(), baseCenters[:,:,1].max()])
+    centers = np.array([0, 255])
+
+    # interpolate thresholds into image sized array
+    # get vertical gradients of 1/4 and 3/4 way strip (center of each quarter)
+    leftCenterT = (basethresholds[0][0] + basethresholds[1][0]) / 2
+    rightCenterT = (basethresholds[0][1] + basethresholds[1][1]) / 2
+    leftGradient = (basethresholds[0][0] - basethresholds[1][0]) / -yRange
+    rightGradient = (basethresholds[0][1] - basethresholds[1][1]) / -yRange
+    leftTopT = leftCenterT - leftGradient * yRange / 2
+    rightTopT = rightCenterT - rightGradient * yRange / 2
+
+    # fill in the first and last vertical strip
+    for y in range(yRange):
+        thresholds[y, 0] = leftTopT + leftGradient * y
+        thresholds[y, xRange-1] = rightTopT + rightGradient * y
+
+    # fill in remaining treashold image
+    centerTs = (thresholds[:, 0] + thresholds[:, xRange-1]) / 2
+    gradients = (thresholds[:, 0] - thresholds[:, xRange-1]) / -xRange * 2
+    leftTs = centerTs - gradients * xRange / 2
+    for x in range(xRange):
+        thresholds[:, x] = leftTs + gradients * x
+
+    # one long array and turn into floats
+    thresholds = thresholds.flatten()
+    imgarray = np.float32(img.flatten())
+
+    # determine labels
+    label = np.uint8(np.zeros(imgarray.shape[0]))
+    label[imgarray > thresholds] = 1
+
+    # convert from label to corresponding rgb value
+    centers = np.uint8(centers) # to int
+    img2array = centers[label]
+
+    # convert results back to img form
+    img2 = img2array.reshape(img.shape)
+
+    return img2
 
 
 def test(img):
 
 	def show(state):
-
-		findCorners(img, state)
-
+		print(measureConfidenceOfParameters(img, state))
 
 	def update(control, value, state):
 		state[control.name] = value
@@ -412,6 +746,7 @@ def test(img):
 		'hough_stn': 					var(v = 0, 		vmin = 1, vmax = 255					),
 		'hough_group_threshold_rho': 	var(v = 10,		vmin = 0, vmax = 100					),
 		'hough_group_threshold_theta': 	var(v = 0.1, 	vmin = 0, vmax = 0.5, 	steps = 0.01	),
+		'perpective_threshold_theta': 	var(v = 0.5,	vmin = 0, vmax = 3.0, 	steps = 0.01	),
 		}
 
 
