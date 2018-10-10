@@ -4,10 +4,11 @@ from common import *
 import inputs
 
 # global variables
-manualMode = False
+manualMode = True
 showProgress = True
 saveProgress = False
 applyBimeans = False
+testOutput = []
 
 # represents a possible page in the image
 # holds the corners, size, area and confidence realted measurements
@@ -70,7 +71,7 @@ def main():
 		return
 
 	for file in sys.argv[1:]:
-		img = processImageFile(file)
+		processImageFile(file)
 
 # processes each image file
 # parameters: 	filename: String	file to be processed
@@ -79,6 +80,7 @@ def processImageFile(filename):
 
 	# read file and convert to gray scale
 	img = cv2.imread(filename)
+	testOutput = img.copy()
 
 	# show
 	cv2.imshow('imgOriginal', img)
@@ -100,14 +102,16 @@ def processImageFile(filename):
 			gray = cv2.cvtColor(transformed, cv2.COLOR_BGR2GRAY)
 			transformed = binmeans(gray)
 
+			# transformed = cv2.adaptiveThreshold(transformed, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 11, 2)
+
 		# show final image
-		# index = filename.rfind('\.')
-		# newfilename = filename[:index] + "_document." + filename[index+1:]
+		index = filename.rfind('\\')
+		newfilename = "output"+filename[index:]
 		logImg(transformed, 'final', True)
+		joinImages(newfilename)
+		# cv2.waitKey(10000)
 
-		cv2.waitKey(10000)
-
-		return transformed
+	
 
 # local search algorithm to optimise parameters, implements steepest ascent algorithm
 def findOptimalParameters(img):
@@ -156,8 +160,8 @@ def findOptimalParameters(img):
 		for name in parameters:
 			if not properties[name].fixed:
 
-				cahnge = random.randint(0, 10)
-				# cahnge = 1
+				# cahnge = random.randint(0, 10)
+				cahnge = 1
 				upperValue = parameters[name] + cahnge * properties[name].steps
 				lowerValue = parameters[name] - cahnge * properties[name].steps
 
@@ -189,6 +193,7 @@ def findOptimalParameters(img):
 #				parameters: {}			parameters to apply 
 # returns:		float: confidence
 def measureConfidenceOfParameters(img, parameters):
+	global testOutput
 
 	pages = findPages(img, parameters)
 
@@ -196,6 +201,7 @@ def measureConfidenceOfParameters(img, parameters):
 		best = max(pages, key = lambda p:p.confidence)
 		imgRectangles = darwRectanglesImg(img, [best.corners], (255, 128, 0))
 		logImg(imgRectangles, 'box', True)
+		testOutput.append(imgRectangles)
 
 	# overall confidence = average confidence / num pages
 	overallConfidence = 0
@@ -208,6 +214,8 @@ def measureConfidenceOfParameters(img, parameters):
 
 # find all possible pages in the image gien the parameters
 def findPages(img, parameters):
+	global testOutput
+	testOutput = [img]
 
 	# blur
 	imgSmooth = smoothImg(img, **parameters)
@@ -219,6 +227,7 @@ def findPages(img, parameters):
 	# erode image
 	imgEroded = erodeImg(imgDilated, **parameters)
 	logImg(imgEroded, 'closed')
+	testOutput.append(imgEroded)
 	
 	erodedGray = grayFlaotImg(imgEroded)
 
@@ -227,21 +236,25 @@ def findPages(img, parameters):
 	harrisThreshold = harrisThresholdImg(harrisIntensity, **parameters);
 	harrisCorners = paintPixelsImg(img, harrisThreshold, [0, 0, 255])
 	logImg(harrisCorners, 'harris corners')
+	testOutput.append(harrisCorners)
 
 	# canny edges
 	imgEdges = cannyEdgeImg(erodedGray, **parameters)
 	logImg(imgEdges, 'canny edges')
+	testOutput.append(imgEdges)
 
 	# # probabilistic hough lines
 	# imgProbLines = probabilisticHoughTransformImg(imgEdges, **state)
 
 	# hough lines
 	houghLines = houghTransformLines(imgEdges, **parameters)
+	testOutput.append(drawLinesImg(black(img), houghLines, 255))
 	groupedLines = groupLines(houghLines, **parameters)
 	horizontalLines, verticalLines = filterHorizontalAnfVerticalLines(groupedLines, **parameters)
 	imgLines = drawLinesImg(black(img), horizontalLines, 255)
 	imgLines = drawLinesImg(imgLines, verticalLines, 255)
 	logImg(imgLines, 'hough lines')
+	testOutput.append(imgLines)
 
 	# find 4 sided contours
 	# contours = contours4Img(imgLines)
@@ -252,6 +265,7 @@ def findPages(img, parameters):
 	rectangles = findRectangles(horizontalLines, verticalLines, img.shape[:2], **parameters)
 	imgRectangles = darwRectanglesImg(img, rectangles, (0, 255, 0))
 	logImg(imgRectangles, 'rectangles')
+	testOutput.append(imgRectangles)
 
 	# points = filterPointsOnCorners(points, harrisThreshold)
 	# imgPoints = drawPointsImg(imgLines, points, radius = 5)
@@ -273,11 +287,39 @@ def applyTransformation(img, parameters):
 	
 	pages = findPages(img, parameters)
 	best = max(pages, key = lambda p:p.confidence)
+	imgRectangles = darwRectanglesImg(img, [best.corners], (0, 128, 255))
+	logImg(imgRectangles, 'box', True)
+	testOutput.append(imgRectangles)
 
 	imgTransformed = perspectiveTransformImg(img, best.corners)
 	logImg(imgTransformed, 'transformed')
 
 	return imgTransformed
+
+# compose a wide image of all stages side by side
+def joinImages(filename):
+	global testOutput
+
+	formated = []
+
+	print(len(testOutput))
+	for img in testOutput:
+		img = np.uint8(img)
+		if len(img.shape) == 2:
+			img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
+		print(img.shape)
+		formated.append(img)
+
+	for i in range(len(formated), 8):
+		formated.append(np.zeros(testOutput[0].shape, dtype = np.uint8))
+
+	row1 = np.concatenate(formated[:4], axis = 1)
+	row2 = np.concatenate(formated[4:8], axis = 1)
+	img = np.concatenate((row1, row2), axis = 0)
+	print('test', img.shape)
+	print('file', filename)
+	cv2.imshow('test', img)
+	cv2.imwrite(filename, img)
 
 # show and or save an image	
 def logImg(img, name, overrideShow = False, overrideSave = False):
@@ -329,7 +371,7 @@ def dilateImg(img, close_size, **args):
 def erodeImg(img, close_size, **args):
 
 	erotionKernel = cv2.getStructuringElement(
-		cv2.MORPH_RECT, 
+		cv2.MORPH_ELLIPSE, 
 		(close_size, close_size)
 		# (erode_size, erode_size) # local seach increase dilation without increaing erotion
 	)
@@ -370,8 +412,10 @@ def paintPixelsImg(img, pixel, color = (0, 0, 255), **args):
 # apply canny edge detection according to parameters
 def cannyEdgeImg(img, canny_lower, canny_upper, **args):
 	
+	imgEdges = cv2.adaptiveThreshold(np.uint8(img), 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 11, 2)
+
 	imgEdges = cv2.Canny(
-		np.uint8(img), 
+		np.uint8(imgEdges), 
 		canny_lower, 
 		canny_upper
 	)
@@ -606,7 +650,7 @@ def darwRectanglesImg(img, rectangles, color = 255, **args):
 	for rect in rectangles:
 		pts = np.array([rect[0], rect[1], rect[3], rect[2]], np.int32)
 		pts = pts.reshape((-1,1,2))
-		cv2.polylines(imgRectangles, [pts], True, color)
+		cv2.polylines(imgRectangles, [pts], True, color, 3)
 
 	return imgRectangles
 
