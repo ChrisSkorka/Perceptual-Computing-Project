@@ -1,10 +1,9 @@
 import sys, math, random, itertools, cv2
 import numpy as np
-from common import *
 import inputs
 
 # global variables
-manualMode = True
+manualMode = False
 showProgress = True
 saveProgress = False
 applyBimeans = False
@@ -22,6 +21,7 @@ class Page:
 
 		self.setCorners(corners)
 
+	# stores the corners, sorts them by position and calculates area
 	def setCorners(self, corners):
 		points = sorted(corners, key=lambda p: p[1])
 		topleft, topright = 		sorted(points[:2], key = lambda p: p[0])
@@ -33,6 +33,7 @@ class Page:
 		
 		self.corners = [topleft, topright, bottomleft, bottomright]
 
+	# calculates the confidence value to the corners
 	def computeConfidence(self, imgSize):
 		if type(imgSize) == np.ndarray:
 			imgSize = imgSize.shape[:2]
@@ -80,7 +81,7 @@ def processImageFile(filename):
 
 	# read file and convert to gray scale
 	img = cv2.imread(filename)
-	testOutput = img.copy()
+	# testOutput = img.copy()
 
 	# show
 	cv2.imshow('imgOriginal', img)
@@ -105,20 +106,19 @@ def processImageFile(filename):
 			# transformed = cv2.adaptiveThreshold(transformed, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 11, 2)
 
 		# show final image
-		index = filename.rfind('\\')
-		newfilename = "output"+filename[index:]
 		logImg(transformed, 'final', True)
-		joinImages(newfilename)
-		# cv2.waitKey(10000)
+		# joinImages("output"+filename[index:])
+		cv2.waitKey(10000)
 
 	
 
 # local search algorithm to optimise parameters, implements steepest ascent algorithm
 def findOptimalParameters(img):
 
+	# default parameters and valid ranges
 	properties = {
-		'blur_kernel_size': 			Property(value = 3, 	vmin = 1, vmax = 15, 	steps = 2, 	fixed = True		),
-		'blur_diviation': 				Property(value = 1, 	vmin = 1, vmax = 9,						fixed = True	),
+		'blur_kernel_size': 			Property(value = 3, 	vmin = 1, vmax = 15, 	steps = 2, 		),
+		'blur_diviation': 				Property(value = 1, 	vmin = 1, vmax = 9,						),
 		'close_size': 					Property(value = 5, 	vmin = 1, vmax = 50,					),
 		'harris_block_size': 			Property(value = 25, 	vmin = 1, vmax = 31, 	steps = 2		),
 		'harris_ksize': 				Property(value = 3, 	vmin = 1, vmax = 31,  	steps = 2, 		fixed = True	),
@@ -141,6 +141,7 @@ def findOptimalParameters(img):
 	confidence = measureConfidenceOfParameters(img, parameters)
 	cv2.waitKey(100)
 
+	# if default produced no results at all, try random configurations until one is found with at least one page
 	while confidence == 0:
 		print("try random")
 		for parname in parameters:
@@ -151,6 +152,7 @@ def findOptimalParameters(img):
 	
 		cv2.waitKey(100)
 
+	# steepest ascent search
 	progress = True
 	while progress:
 		progress = False
@@ -199,9 +201,10 @@ def measureConfidenceOfParameters(img, parameters):
 
 	if len(pages) > 0:
 		best = max(pages, key = lambda p:p.confidence)
-		imgRectangles = darwRectanglesImg(img, [best.corners], (255, 128, 0))
+		imgRectangles = darwRectanglesImg(img, [best.corners], (0, 128, 255))
 		logImg(imgRectangles, 'box', True)
-		testOutput.append(imgRectangles)
+		# testOutput.append(imgRectangles)
+		# joinImages("output\\test.png")
 
 	# overall confidence = average confidence / num pages
 	overallConfidence = 0
@@ -214,8 +217,8 @@ def measureConfidenceOfParameters(img, parameters):
 
 # find all possible pages in the image gien the parameters
 def findPages(img, parameters):
-	global testOutput
-	testOutput = [img]
+	# global testOutput
+	# testOutput = [img]
 
 	# blur
 	imgSmooth = smoothImg(img, **parameters)
@@ -227,7 +230,7 @@ def findPages(img, parameters):
 	# erode image
 	imgEroded = erodeImg(imgDilated, **parameters)
 	logImg(imgEroded, 'closed')
-	testOutput.append(imgEroded)
+	# testOutput.append(imgEroded)
 	
 	erodedGray = grayFlaotImg(imgEroded)
 
@@ -236,36 +239,38 @@ def findPages(img, parameters):
 	harrisThreshold = harrisThresholdImg(harrisIntensity, **parameters);
 	harrisCorners = paintPixelsImg(img, harrisThreshold, [0, 0, 255])
 	logImg(harrisCorners, 'harris corners')
-	testOutput.append(harrisCorners)
+	# testOutput.append(harrisCorners)
 
 	# canny edges
 	imgEdges = cannyEdgeImg(erodedGray, **parameters)
 	logImg(imgEdges, 'canny edges')
-	testOutput.append(imgEdges)
+	# testOutput.append(imgEdges)
 
 	# # probabilistic hough lines
 	# imgProbLines = probabilisticHoughTransformImg(imgEdges, **state)
 
 	# hough lines
 	houghLines = houghTransformLines(imgEdges, **parameters)
-	testOutput.append(drawLinesImg(black(img), houghLines, 255))
+	# imgRawHoughLines = drawLinesImg(black(img), houghLines, 255)
+	# testOutput.append(imgRawHoughLines)
+	# logImg(imgRawHoughLines, 'raw hough lines')
 	groupedLines = groupLines(houghLines, **parameters)
 	horizontalLines, verticalLines = filterHorizontalAnfVerticalLines(groupedLines, **parameters)
 	imgLines = drawLinesImg(black(img), horizontalLines, 255)
 	imgLines = drawLinesImg(imgLines, verticalLines, 255)
 	logImg(imgLines, 'hough lines')
-	testOutput.append(imgLines)
+	# testOutput.append(imgLines)
 
 	# find 4 sided contours
-	# contours = contours4Img(imgLines)
-	# imgContours = darwContousImg(img, contours)
-	# logImg(imgContours, 'contours')
+	contours = contours4Img(imgEdges)
+	imgContours = darwContoursImg(black(img), contours)
+	logImg(imgContours, 'contours')
 
 	# find line intersections and corresponding rectangles
 	rectangles = findRectangles(horizontalLines, verticalLines, img.shape[:2], **parameters)
 	imgRectangles = darwRectanglesImg(img, rectangles, (0, 255, 0))
 	logImg(imgRectangles, 'rectangles')
-	testOutput.append(imgRectangles)
+	# testOutput.append(imgRectangles)
 
 	# points = filterPointsOnCorners(points, harrisThreshold)
 	# imgPoints = drawPointsImg(imgLines, points, radius = 5)
@@ -276,6 +281,9 @@ def findPages(img, parameters):
 
 	# count number of corners of page that match with corners form Harris results
 	countCornerMatchesPages(harrisThreshold, pages)
+	
+	# imgCompare = np.concatenate((imgEdges, imgRawHoughLines, imgContours), axis = 1)
+	# logImg(imgCompare, 'contcompare')
 
 	for page in pages:
 		page.computeConfidence(img)
@@ -289,14 +297,14 @@ def applyTransformation(img, parameters):
 	best = max(pages, key = lambda p:p.confidence)
 	imgRectangles = darwRectanglesImg(img, [best.corners], (0, 128, 255))
 	logImg(imgRectangles, 'box', True)
-	testOutput.append(imgRectangles)
+	# testOutput.append(imgRectangles)
 
 	imgTransformed = perspectiveTransformImg(img, best.corners)
 	logImg(imgTransformed, 'transformed')
 
 	return imgTransformed
 
-# compose a wide image of all stages side by side
+# compose a wide image of all stages side by side, used for reporting
 def joinImages(filename):
 	global testOutput
 
@@ -412,10 +420,10 @@ def paintPixelsImg(img, pixel, color = (0, 0, 255), **args):
 # apply canny edge detection according to parameters
 def cannyEdgeImg(img, canny_lower, canny_upper, **args):
 	
-	imgEdges = cv2.adaptiveThreshold(np.uint8(img), 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 11, 2)
+	# img = cv2.adaptiveThreshold(np.uint8(img), 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 11, 2)
 
 	imgEdges = cv2.Canny(
-		np.uint8(imgEdges), 
+		np.uint8(img), 
 		canny_lower, 
 		canny_upper
 	)
@@ -497,6 +505,7 @@ def groupLines(lines, hough_group_threshold_rho, hough_group_threshold_theta, **
 			if index != line and -tr < dr < tr and -tt < dt < tt:
 				groups[index].append(line)
 
+	# itterative process of removing lines that are least likely to be the center of a group
 	progress = True
 	while progress:
 		progress = False
@@ -543,6 +552,7 @@ def groupLines(lines, hough_group_threshold_rho, hough_group_threshold_theta, **
 
 	groupCenters = []
 
+	# filter remaining lines
 	for index in groups:
 		if groups[index] is not None:
 			groupCenters.append(index)
@@ -574,11 +584,11 @@ def drawLinesImg(img, lines, color = 255, **args):
 def contours4Img(img, **args):
 
 	contours4 = []
-
-	img0, allContours, hierarchy = cv2.findContours(black(img), cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
+	
+	img0, allContours, hierarchy = cv2.findContours(img, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
 	allContours = sorted(allContours, key = cv2.contourArea, reverse = True)
+	
 	for contour in allContours:
-
 		# approximate the contour
 		peri = cv2.arcLength(contour, True)
 		approx = cv2.approxPolyDP(contour, 0.02 * peri, True)
@@ -589,7 +599,7 @@ def contours4Img(img, **args):
 	return contours4
 
 # draw contours
-def darwContousImg(img, contours, color = (0, 255, 0), **args):
+def darwContoursImg(img, contours, color = 255, **args):
 	
 	imgContours = img.copy()
 
@@ -600,6 +610,7 @@ def darwContousImg(img, contours, color = (0, 255, 0), **args):
 # find intersection between two lines
 def findLineIntersection(lineA, lineB, **args):
 	
+	# sin with non 0 output
 	def sin(x):
 		y = math.sin(x)
 		if y == 0:
@@ -607,6 +618,7 @@ def findLineIntersection(lineA, lineB, **args):
 		else:
 			return y
 
+	# cos with non 0 output
 	def cos(x):
 		y = math.cos(x)
 		if y == 0:
@@ -624,13 +636,16 @@ def findLineIntersection(lineA, lineB, **args):
 # find all possible rectangles from all vertical and horizontal lines
 def findRectangles(horizontalLines, verticalLines, boundry, **args):
 
+	# all possible pairs of horizontal and vertical pairs
 	horizontalLinePairs = [l for l in itertools.combinations(horizontalLines, 2)]
 	verticalLinePairs =   [l for l in itertools.combinations(verticalLines,   2)]
 
+	# all possible combinations of horizontal and vertical lines to produce rectangles
 	lineQuadruplets = [(x, y) for x in verticalLinePairs for y in horizontalLinePairs]
 
 	rectangles = []
 
+	# find rectangle vertices
 	for quad in lineQuadruplets:
 		corner = (
 			findLineIntersection(quad[0][0], quad[1][0]),
@@ -838,8 +853,7 @@ def test(img):
 	parameters = {
 		'blur_kernel_size': 			var(v = 3, 		vmin = 1, vmax = 15, 	steps = 2		),
 		'blur_diviation': 				var(v = 1, 		vmin = 1, vmax = 9						),
-		'close_size': 				var(v = 6, 		vmin = 1, vmax = 50						),
-		'erode_size': 					var(v = 6, 		vmin = 1, vmax = 50						),
+		'close_size': 					var(v = 6, 		vmin = 1, vmax = 50						),
 		'harris_block_size': 			var(v = 25, 	vmin = 1, vmax = 31, 	steps = 2		),
 		'harris_ksize': 				var(v = 3, 		vmin = 1, vmax = 31,  	steps = 2		),
 		'harris_k': 					var(v = 0.04, 	vmin = 0, vmax = 1, 	steps = 0.001	),
