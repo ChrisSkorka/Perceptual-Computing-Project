@@ -335,7 +335,7 @@ def logImg(img, name, overrideShow = False, overrideSave = False):
 		cv2.imshow(name, img)
 
 	if saveProgress or overrideSave:
-		cv2.imwrite('output/'+name+".png", img)
+		cv2.imwrite(name+".png", img)
 
 # black image with given size or size of given image
 def black(size):
@@ -585,7 +585,7 @@ def contours4Img(img, **args):
 
 	contours4 = []
 	
-	img0, allContours, hierarchy = cv2.findContours(img, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
+	allContours, hierarchy = cv2.findContours(img, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
 	allContours = sorted(allContours, key = cv2.contourArea, reverse = True)
 	
 	for contour in allContours:
